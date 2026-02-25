@@ -1,0 +1,21 @@
+{application, erl_openrouter, [
+    {description, "Erlang client for the OpenRouter API"},
+    {vsn, "0.1.0"},
+    {registered, [openrouter_sup, openrouter_client]},
+    {mod, {openrouter_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        inets,
+        ssl,
+        crypto
+    ]},
+    {optional_applications, [jsx]},
+    {env, [
+        {base_url, "https://openrouter.ai/api/v1"},
+        {timeout, 30000}
+    ]},
+    {modules, []},
+    {licenses, ["Apache-2.0"]},
+    {links, []}
+]}.
