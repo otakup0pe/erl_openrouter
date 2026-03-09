@@ -51,9 +51,11 @@ init(Opts) ->
 
 handle_call({chat, Messages, Opts}, _From, State) ->
     Request = openrouter_chat:build_request(Messages, Opts),
-    Url = State#state.base_url ++ "/chat/completions",
+    Url = resolve_request_url(Opts, State#state.base_url) ++ "/chat/completions",
+    Auth = resolve_request_auth(Opts, State#state.auth),
+    Timeout = resolve_request_timeout(Opts, State#state.timeout),
     Result = with_retry(fun() ->
-        case openrouter_http:post(Url, Request, State#state.auth, State#state.timeout) of
+        case openrouter_http:post(Url, Request, Auth, Timeout) of
             {ok, 200, Body} ->
                 openrouter_chat:parse_response(Body);
             {ok, StatusCode, Body} when StatusCode =:= 429; StatusCode >= 500 ->
@@ -117,6 +119,24 @@ terminate(_Reason, _State) ->
     ok.
 
 %% Internal
+
+resolve_request_auth(Opts, DefaultAuth) when is_map(Opts) ->
+    case openrouter_auth:resolve(Opts) of
+        {error, no_api_key} -> DefaultAuth;
+        Resolved -> Resolved
+    end;
+resolve_request_auth(_, DefaultAuth) ->
+    DefaultAuth.
+
+resolve_request_url(Opts, DefaultUrl) when is_map(Opts) ->
+    maps:get(base_url, Opts, DefaultUrl);
+resolve_request_url(_, DefaultUrl) ->
+    DefaultUrl.
+
+resolve_request_timeout(Opts, DefaultTimeout) when is_map(Opts) ->
+    maps:get(timeout, Opts, DefaultTimeout);
+resolve_request_timeout(_, DefaultTimeout) ->
+    DefaultTimeout.
 
 with_retry(Fun, State) ->
     with_retry(Fun, 0, State).
