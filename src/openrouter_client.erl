@@ -4,7 +4,7 @@
 -include("openrouter.hrl").
 
 -export([start_link/0, start_link/1]).
--export([chat/2, models/0, key_info/0]).
+-export([chat/2, embeddings/2, models/0, key_info/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -record(state, {
@@ -24,6 +24,9 @@ start_link(Opts) ->
 
 chat(Messages, Opts) ->
     gen_server:call(?MODULE, {chat, Messages, Opts}, infinity).
+
+embeddings(Input, Opts) ->
+    gen_server:call(?MODULE, {embeddings, Input, Opts}, infinity).
 
 models() ->
     gen_server:call(?MODULE, models, infinity).
@@ -68,15 +71,31 @@ handle_call({chat, Messages, Opts}, _From, State) ->
     end, State),
     {reply, Result, State};
 
+handle_call({embeddings, Input, Opts}, _From, State) ->
+    Request = openrouter_embeddings:build_request(Input, Opts),
+    Url = resolve_request_url(Opts, State#state.base_url) ++ "/embeddings",
+    Auth = resolve_request_auth(Opts, State#state.auth),
+    Timeout = resolve_request_timeout(Opts, State#state.timeout),
+    Result = with_retry(fun() ->
+        case openrouter_http:post(Url, Request, Auth, Timeout) of
+            {ok, 200, Body} ->
+                openrouter_embeddings:parse_response(Body);
+            {ok, StatusCode, Body} when StatusCode =:= 429; StatusCode >= 500 ->
+                {retry, openrouter_error:classify(StatusCode, Body)};
+            {ok, StatusCode, Body} ->
+                {error, openrouter_error:classify(StatusCode, Body)};
+            {error, Reason} ->
+                {error, openrouter_error:classify(Reason)}
+        end
+    end, State),
+    {reply, Result, State};
+
 handle_call(models, _From, State) ->
     Url = State#state.base_url ++ "/models",
     Result = with_retry(fun() ->
         case openrouter_http:get(Url, State#state.auth, State#state.timeout) of
             {ok, 200, Body} ->
-                case openrouter_json:decode(Body) of
-                    {ok, #{<<"data">> := Models}} -> {ok, Models};
-                    {error, _} = Err -> Err
-                end;
+                openrouter_models:parse_response(Body);
             {ok, StatusCode, Body} when StatusCode =:= 429; StatusCode >= 500 ->
                 {retry, openrouter_error:classify(StatusCode, Body)};
             {ok, StatusCode, Body} ->
@@ -92,10 +111,7 @@ handle_call(key_info, _From, State) ->
     Result = with_retry(fun() ->
         case openrouter_http:get(Url, State#state.auth, State#state.timeout) of
             {ok, 200, Body} ->
-                case openrouter_json:decode(Body) of
-                    {ok, #{<<"data">> := KeyData}} -> {ok, KeyData};
-                    {error, _} = Err -> Err
-                end;
+                openrouter_key:parse_response(Body);
             {ok, StatusCode, Body} when StatusCode =:= 429; StatusCode >= 500 ->
                 {retry, openrouter_error:classify(StatusCode, Body)};
             {ok, StatusCode, Body} ->

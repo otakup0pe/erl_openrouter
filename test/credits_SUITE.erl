@@ -8,7 +8,9 @@
 -export([
     fetch_credits_success/1,
     fetch_credits_auth_error/1,
-    credits_response_parsing/1
+    credits_response_parsing/1,
+    credits_missing_data_field/1,
+    credits_invalid_json/1
 ]).
 
 all() -> [{group, credits}].
@@ -17,7 +19,9 @@ groups() ->
     [{credits, [sequence], [
         fetch_credits_success,
         fetch_credits_auth_error,
-        credits_response_parsing
+        credits_response_parsing,
+        credits_missing_data_field,
+        credits_invalid_json
     ]}].
 
 init_per_suite(Config) ->
@@ -77,3 +81,18 @@ credits_response_parsing(Config) ->
     ?assertEqual(500.0, maps:get(<<"total_credits">>, Credits)),
     ?assertEqual(150.25, maps:get(<<"total_usage">>, Credits)),
     ?assertEqual(false, maps:get(<<"is_free_tier">>, Credits)).
+
+credits_missing_data_field(Config) ->
+    BaseUrl = proplists:get_value(base_url, Config),
+    {ok, Body} = openrouter_json:encode(#{
+        <<"total_credits">> => 100.0
+    }),
+    mock_openrouter:set_response(credits, {200, Body}),
+    ?assertEqual({error, {parse_error, missing_data_field}},
+                 openrouter_credits:fetch(BaseUrl, {ok, <<"sk-key">>})).
+
+credits_invalid_json(Config) ->
+    BaseUrl = proplists:get_value(base_url, Config),
+    mock_openrouter:set_response(credits, {200, <<"not json">>}),
+    ?assertMatch({error, {parse_error, _}},
+                 openrouter_credits:fetch(BaseUrl, {ok, <<"sk-key">>})).

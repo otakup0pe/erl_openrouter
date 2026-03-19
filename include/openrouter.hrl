@@ -28,6 +28,12 @@
     cost :: float() | undefined
 }).
 
+-record(embedding_response, {
+    model :: binary(),
+    data :: [#{index := non_neg_integer(), embedding := [float()]}],
+    usage :: map()
+}).
+
 -record(api_error, {
     type :: auth_error | rate_limited | insufficient_credits
           | forbidden | server_error | timeout | parse_error,

@@ -43,7 +43,8 @@ init_per_testcase(_TC, Config) ->
     BaseUrl = "http://localhost:" ++ integer_to_list(Port) ++ "/api/v1",
     {ok, Pid} = openrouter_client:start_link(#{
         base_url => BaseUrl,
-        auth_callback => fun() -> {ok, <<"sk-test">>} end
+        auth_callback => fun() -> {ok, <<"sk-test">>} end,
+        max_retries => 0
     }),
     unlink(Pid),
     [{client_pid, Pid}, {base_url, BaseUrl} | Config].

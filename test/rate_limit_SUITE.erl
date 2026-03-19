@@ -7,6 +7,8 @@
          init_per_testcase/2, end_per_testcase/2]).
 -export([
     retry_on_429/1,
+    retry_on_500/1,
+    retry_on_502/1,
     backoff_increases_between_retries/1,
     gives_up_after_max_retries/1,
     succeeds_after_retry/1
@@ -17,6 +19,8 @@ all() -> [{group, rate_limit}].
 groups() ->
     [{rate_limit, [sequence], [
         retry_on_429,
+        retry_on_500,
+        retry_on_502,
         backoff_increases_between_retries,
         gives_up_after_max_retries,
         succeeds_after_retry
@@ -63,6 +67,25 @@ retry_on_429(_Config) ->
     %% Should have retried (1 initial + max_retries)
     Count = mock_openrouter:request_count(),
     ?assert(Count > 1).
+
+retry_on_500(_Config) ->
+    {ok, ErrorBody} = openrouter_json:encode(#{
+        <<"error">> => #{<<"code">> => 500, <<"message">> => <<"Internal server error">>}
+    }),
+    mock_openrouter:set_response({500, ErrorBody}),
+    {error, Error} = openrouter:chat([#{<<"role">> => <<"user">>, <<"content">> => <<"hi">>}]),
+    ?assertEqual(server_error, Error#api_error.type),
+    %% 1 initial + 3 retries = 4
+    ?assertEqual(4, mock_openrouter:request_count()).
+
+retry_on_502(_Config) ->
+    {ok, ErrorBody} = openrouter_json:encode(#{
+        <<"error">> => #{<<"code">> => 502, <<"message">> => <<"Bad gateway">>}
+    }),
+    mock_openrouter:set_response({502, ErrorBody}),
+    {error, Error} = openrouter:chat([#{<<"role">> => <<"user">>, <<"content">> => <<"hi">>}]),
+    ?assertEqual(server_error, Error#api_error.type),
+    ?assertEqual(4, mock_openrouter:request_count()).
 
 backoff_increases_between_retries(_Config) ->
     %% Use custom handler to track timing between requests

@@ -28,7 +28,8 @@ start(_Opts) ->
             {"/api/v1/chat/completions", ?MODULE, chat_completions},
             {"/api/v1/models", ?MODULE, models},
             {"/api/v1/auth/key", ?MODULE, auth_key},
-            {"/api/v1/credits", ?MODULE, credits}
+            {"/api/v1/credits", ?MODULE, credits},
+            {"/api/v1/embeddings", ?MODULE, embeddings}
         ]}
     ]),
     {ok, _} = cowboy:start_clear(mock_openrouter_listener,
