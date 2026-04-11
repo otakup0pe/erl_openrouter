@@ -13,6 +13,16 @@
     timeout :: pos_integer(),
     max_retries :: non_neg_integer(),
     backoff_base :: pos_integer(),
+    backoff_max :: pos_integer(),
+    in_flight = #{} :: #{reference() => {term(), atom()}}
+}).
+
+-record(call_config, {
+    auth :: term(),
+    base_url :: string(),
+    timeout :: pos_integer(),
+    max_retries :: non_neg_integer(),
+    backoff_base :: pos_integer(),
     backoff_max :: pos_integer()
 }).
 
@@ -52,81 +62,63 @@ init(Opts) ->
         backoff_max = BackoffMax
     }}.
 
-handle_call({chat, Messages, Opts}, _From, State) ->
+handle_call({chat, Messages, Opts}, From, State) ->
+    Config = build_call_config(Opts, State),
+    Url = Config#call_config.base_url ++ "/chat/completions",
     Request = openrouter_chat:build_request(Messages, Opts),
-    Url = resolve_request_url(Opts, State#state.base_url) ++ "/chat/completions",
-    Auth = resolve_request_auth(Opts, State#state.auth),
-    Timeout = resolve_request_timeout(Opts, State#state.timeout),
-    Result = with_retry(fun() ->
-        case openrouter_http:post(Url, Request, Auth, Timeout) of
-            {ok, 200, Body} ->
-                openrouter_chat:parse_response(Body);
-            {ok, StatusCode, Body} when StatusCode =:= 429; StatusCode >= 500 ->
-                {retry, openrouter_error:classify(StatusCode, Body)};
-            {ok, StatusCode, Body} ->
-                {error, openrouter_error:classify(StatusCode, Body)};
-            {error, Reason} ->
-                {error, openrouter_error:classify(Reason)}
-        end
-    end, State),
-    {reply, Result, State};
+    NewState = spawn_post(From, chat, Url, Request, Config,
+                          fun openrouter_chat:parse_response/1, State),
+    {noreply, NewState};
 
-handle_call({embeddings, Input, Opts}, _From, State) ->
+handle_call({embeddings, Input, Opts}, From, State) ->
+    Config = build_call_config(Opts, State),
+    Url = Config#call_config.base_url ++ "/embeddings",
     Request = openrouter_embeddings:build_request(Input, Opts),
-    Url = resolve_request_url(Opts, State#state.base_url) ++ "/embeddings",
-    Auth = resolve_request_auth(Opts, State#state.auth),
-    Timeout = resolve_request_timeout(Opts, State#state.timeout),
-    Result = with_retry(fun() ->
-        case openrouter_http:post(Url, Request, Auth, Timeout) of
-            {ok, 200, Body} ->
-                openrouter_embeddings:parse_response(Body);
-            {ok, StatusCode, Body} when StatusCode =:= 429; StatusCode >= 500 ->
-                {retry, openrouter_error:classify(StatusCode, Body)};
-            {ok, StatusCode, Body} ->
-                {error, openrouter_error:classify(StatusCode, Body)};
-            {error, Reason} ->
-                {error, openrouter_error:classify(Reason)}
-        end
-    end, State),
-    {reply, Result, State};
+    NewState = spawn_post(From, embeddings, Url, Request, Config,
+                          fun openrouter_embeddings:parse_response/1, State),
+    {noreply, NewState};
 
-handle_call(models, _From, State) ->
-    Url = State#state.base_url ++ "/models",
-    Result = with_retry(fun() ->
-        case openrouter_http:get(Url, State#state.auth, State#state.timeout) of
-            {ok, 200, Body} ->
-                openrouter_models:parse_response(Body);
-            {ok, StatusCode, Body} when StatusCode =:= 429; StatusCode >= 500 ->
-                {retry, openrouter_error:classify(StatusCode, Body)};
-            {ok, StatusCode, Body} ->
-                {error, openrouter_error:classify(StatusCode, Body)};
-            {error, Reason} ->
-                {error, openrouter_error:classify(Reason)}
-        end
-    end, State),
-    {reply, Result, State};
+handle_call(models, From, State) ->
+    Config = build_call_config(#{}, State),
+    Url = Config#call_config.base_url ++ "/models",
+    NewState = spawn_get(From, models, Url, Config,
+                         fun openrouter_models:parse_response/1, State),
+    {noreply, NewState};
 
-handle_call(key_info, _From, State) ->
-    Url = State#state.base_url ++ "/auth/key",
-    Result = with_retry(fun() ->
-        case openrouter_http:get(Url, State#state.auth, State#state.timeout) of
-            {ok, 200, Body} ->
-                openrouter_key:parse_response(Body);
-            {ok, StatusCode, Body} when StatusCode =:= 429; StatusCode >= 500 ->
-                {retry, openrouter_error:classify(StatusCode, Body)};
-            {ok, StatusCode, Body} ->
-                {error, openrouter_error:classify(StatusCode, Body)};
-            {error, Reason} ->
-                {error, openrouter_error:classify(Reason)}
-        end
-    end, State),
-    {reply, Result, State};
+handle_call(key_info, From, State) ->
+    Config = build_call_config(#{}, State),
+    Url = Config#call_config.base_url ++ "/auth/key",
+    NewState = spawn_get(From, key_info, Url, Config,
+                         fun openrouter_key:parse_response/1, State),
+    {noreply, NewState};
 
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+handle_info({'DOWN', MonRef, process, _Pid, Reason}, State) ->
+    case maps:take(MonRef, State#state.in_flight) of
+        {{From, Op}, NewInFlight} ->
+            case Reason of
+                normal ->
+                    %% Worker completed successfully; reply already
+                    %% delivered via gen_server:reply.
+                    {noreply, State#state{in_flight = NewInFlight}};
+                _ ->
+                    %% Worker crashed before replying.
+                    Error = {error, {worker_crashed, Op, Reason}},
+                    gen_server:reply(From, Error),
+                    logger:warning(
+                      "openrouter_client worker for ~p crashed: ~p",
+                      [Op, Reason]),
+                    {noreply, State#state{in_flight = NewInFlight}}
+            end;
+        error ->
+            %% DOWN for an unknown monitor ref; ignore
+            {noreply, State}
+    end;
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -135,6 +127,19 @@ terminate(_Reason, _State) ->
     ok.
 
 %% Internal
+
+%% Build a snapshot of call config from gen_server state plus per-call
+%% overrides. The snapshot is immutable and passed by value to worker
+%% processes, which execute the HTTP call without touching shared state.
+build_call_config(Opts, #state{} = State) ->
+    #call_config{
+        auth = resolve_request_auth(Opts, State#state.auth),
+        base_url = resolve_request_url(Opts, State#state.base_url),
+        timeout = resolve_request_timeout(Opts, State#state.timeout),
+        max_retries = State#state.max_retries,
+        backoff_base = State#state.backoff_base,
+        backoff_max = State#state.backoff_max
+    }.
 
 resolve_request_auth(Opts, DefaultAuth) when is_map(Opts) ->
     case openrouter_auth:resolve(Opts) of
@@ -154,18 +159,68 @@ resolve_request_timeout(Opts, DefaultTimeout) when is_map(Opts) ->
 resolve_request_timeout(_, DefaultTimeout) ->
     DefaultTimeout.
 
-with_retry(Fun, State) ->
-    with_retry(Fun, 0, State).
+spawn_post(From, Op, Url, Request, Config, ParseFun, State) ->
+    {_Pid, MonRef} = spawn_monitor(fun() ->
+        Result = do_post_with_retry(Url, Request, Config, ParseFun),
+        gen_server:reply(From, Result)
+    end),
+    track_worker(From, Op, MonRef, State).
 
-with_retry(Fun, Attempt, #state{max_retries = MaxRetries} = State) ->
+spawn_get(From, Op, Url, Config, ParseFun, State) ->
+    {_Pid, MonRef} = spawn_monitor(fun() ->
+        Result = do_get_with_retry(Url, Config, ParseFun),
+        gen_server:reply(From, Result)
+    end),
+    track_worker(From, Op, MonRef, State).
+
+track_worker(From, Op, MonRef, State) ->
+    NewInFlight = maps:put(MonRef, {From, Op}, State#state.in_flight),
+    State#state{in_flight = NewInFlight}.
+
+do_post_with_retry(Url, Request, Config, ParseFun) ->
+    with_retry(fun() ->
+        case openrouter_http:post(Url, Request,
+                                  Config#call_config.auth,
+                                  Config#call_config.timeout) of
+            {ok, 200, Body} ->
+                ParseFun(Body);
+            {ok, StatusCode, Body} when StatusCode =:= 429; StatusCode >= 500 ->
+                {retry, openrouter_error:classify(StatusCode, Body)};
+            {ok, StatusCode, Body} ->
+                {error, openrouter_error:classify(StatusCode, Body)};
+            {error, Reason} ->
+                {error, openrouter_error:classify(Reason)}
+        end
+    end, Config).
+
+do_get_with_retry(Url, Config, ParseFun) ->
+    with_retry(fun() ->
+        case openrouter_http:get(Url,
+                                 Config#call_config.auth,
+                                 Config#call_config.timeout) of
+            {ok, 200, Body} ->
+                ParseFun(Body);
+            {ok, StatusCode, Body} when StatusCode =:= 429; StatusCode >= 500 ->
+                {retry, openrouter_error:classify(StatusCode, Body)};
+            {ok, StatusCode, Body} ->
+                {error, openrouter_error:classify(StatusCode, Body)};
+            {error, Reason} ->
+                {error, openrouter_error:classify(Reason)}
+        end
+    end, Config).
+
+with_retry(Fun, Config) ->
+    with_retry(Fun, 0, Config).
+
+with_retry(Fun, Attempt, #call_config{max_retries = MaxRetries} = Config) ->
     case Fun() of
         {retry, _} when Attempt < MaxRetries ->
             BackoffOpts = #{
-                base => State#state.backoff_base,
-                max => State#state.backoff_max
+                base => Config#call_config.backoff_base,
+                max => Config#call_config.backoff_max
             },
             openrouter_backoff:wait(Attempt + 1, BackoffOpts),
-            with_retry(Fun, Attempt + 1, State);
+            with_retry(Fun, Attempt + 1, Config);
         {retry, LastError} ->
             {error, LastError};
         Other ->

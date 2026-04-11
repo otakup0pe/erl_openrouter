@@ -6,6 +6,7 @@
 
 -export([start/0, start/1, stop/0, port/0]).
 -export([set_response/1, set_response/2, set_handler/1]).
+-export([set_delay/1]).
 -export([last_request/0, request_count/0, reset/0]).
 
 %% Cowboy handler callbacks
@@ -23,6 +24,7 @@ start(_Opts) ->
     ets:insert(?MOCK_TAB, {handler, undefined}),
     ets:insert(?MOCK_TAB, {last_request, undefined}),
     ets:insert(?MOCK_TAB, {request_count, 0}),
+    ets:insert(?MOCK_TAB, {delay_ms, 0}),
     Dispatch = cowboy_router:compile([
         {'_', [
             {"/api/v1/chat/completions", ?MODULE, chat_completions},
@@ -55,6 +57,9 @@ set_response(Endpoint, Response) ->
 set_handler(Fun) ->
     ets:insert(?MOCK_TAB, {handler, Fun}).
 
+set_delay(Ms) when is_integer(Ms), Ms >= 0 ->
+    ets:insert(?MOCK_TAB, {delay_ms, Ms}).
+
 last_request() ->
     [{_, Req}] = ets:lookup(?MOCK_TAB, last_request),
     Req.
@@ -64,10 +69,16 @@ request_count() ->
     Count.
 
 reset() ->
+    EndpointKeys = [K || {K, _} <- ets:tab2list(?MOCK_TAB),
+                          is_tuple(K),
+                          tuple_size(K) =:= 2,
+                          element(1, K) =:= response],
+    lists:foreach(fun(K) -> ets:delete(?MOCK_TAB, K) end, EndpointKeys),
     ets:insert(?MOCK_TAB, {response, default_success_response()}),
     ets:insert(?MOCK_TAB, {handler, undefined}),
     ets:insert(?MOCK_TAB, {last_request, undefined}),
-    ets:insert(?MOCK_TAB, {request_count, 0}).
+    ets:insert(?MOCK_TAB, {request_count, 0}),
+    ets:insert(?MOCK_TAB, {delay_ms, 0}).
 
 %% Cowboy handler
 
@@ -81,6 +92,10 @@ init(Req0, Endpoint) ->
         body => ReqBody,
         headers => Headers
     }),
+    case get_delay() of
+        0 -> ok;
+        Ms -> timer:sleep(Ms)
+    end,
     case get_handler() of
         undefined ->
             Response = get_response(Endpoint),
@@ -107,6 +122,12 @@ store_request(ReqData) ->
 get_handler() ->
     [{_, Handler}] = ets:lookup(?MOCK_TAB, handler),
     Handler.
+
+get_delay() ->
+    case ets:lookup(?MOCK_TAB, delay_ms) of
+        [{_, Ms}] -> Ms;
+        [] -> 0
+    end.
 
 get_response(Endpoint) ->
     case ets:lookup(?MOCK_TAB, {response, Endpoint}) of
