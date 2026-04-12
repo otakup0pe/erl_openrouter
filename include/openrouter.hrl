@@ -36,7 +36,7 @@
 
 -record(api_error, {
     type :: auth_error | rate_limited | insufficient_credits
-          | forbidden | server_error | timeout | parse_error,
+          | forbidden | server_error | timeout | connect_failed | parse_error,
     code :: integer() | undefined,
     message :: binary(),
     metadata :: map()

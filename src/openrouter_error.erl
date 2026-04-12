@@ -5,14 +5,52 @@
 -export([classify/1, classify/2, from_body/1]).
 
 -spec classify(Reason :: term()) -> #api_error{}.
-classify(timeout) ->
-    #api_error{type = timeout, message = <<"Request timed out">>, metadata = #{}};
-classify({failed_connect, _} = Reason) ->
-    #api_error{type = timeout, message = iolist_to_binary(io_lib:format("~p", [Reason])),
-               metadata = #{}};
+classify(timeout = Reason) ->
+    #api_error{type = timeout, message = <<"Request timed out">>,
+               metadata = #{reason => Reason}};
+classify({failed_connect, Inner} = Reason) when is_list(Inner) ->
+    Message = connect_failure_message(Inner),
+    #api_error{type = connect_failed, message = Message,
+               metadata = #{reason => Reason}};
 classify(Reason) ->
-    #api_error{type = server_error, message = iolist_to_binary(io_lib:format("~p", [Reason])),
-               metadata = #{}}.
+    #api_error{type = server_error,
+               message = iolist_to_binary(io_lib:format("~p", [Reason])),
+               metadata = #{reason => Reason}}.
+
+%% Walk the inner proplist from httpc's {failed_connect, [...]} error
+%% and produce a human-readable message that names the specific
+%% sub-cause. We intentionally do NOT catch-all the inner cause --
+%% unknown sub-errors fall through to a generic formatter so the log
+%% still carries the term, but named cases get friendlier messages.
+connect_failure_message(Inner) ->
+    Cause = extract_connect_cause(Inner),
+    format_connect_cause(Cause).
+
+extract_connect_cause([]) ->
+    unknown;
+extract_connect_cause([{to_address, _} | Rest]) ->
+    extract_connect_cause(Rest);
+extract_connect_cause([{inet, _, Cause} | _]) ->
+    Cause;
+extract_connect_cause([Cause | _]) ->
+    Cause.
+
+format_connect_cause(nxdomain) ->
+    <<"DNS lookup failed: nxdomain">>;
+format_connect_cause(timeout) ->
+    <<"Connect timed out">>;
+format_connect_cause(ehostunreach) ->
+    <<"Host unreachable">>;
+format_connect_cause(enetunreach) ->
+    <<"Network unreachable">>;
+format_connect_cause(econnrefused) ->
+    <<"Connection refused">>;
+format_connect_cause(econnreset) ->
+    <<"Connection reset by peer">>;
+format_connect_cause({tls_alert, _} = Alert) ->
+    iolist_to_binary(io_lib:format("TLS handshake failed: ~p", [Alert]));
+format_connect_cause(Other) ->
+    iolist_to_binary(io_lib:format("Connect failed: ~p", [Other])).
 
 -spec classify(StatusCode :: integer(), Body :: binary()) -> #api_error{}.
 classify(StatusCode, Body) ->

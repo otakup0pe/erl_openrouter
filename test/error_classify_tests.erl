@@ -70,18 +70,54 @@ error_with_metadata_test() ->
     ?assertEqual(#{<<"retry_after">> => 30}, Error#api_error.metadata).
 
 %% classify/1 -- connection-level errors
+%%
+%% These tests pin down the fix for the catch-all bug where any
+%% {failed_connect, _} (DNS broken, TCP refused, TLS failure, ...)
+%% was reclassified as a timeout, making environmental bugs
+%% indistinguishable from real request timeouts in logs.
 
 timeout_error_test() ->
     Error = openrouter_error:classify(timeout),
-    ?assertEqual(timeout, Error#api_error.type).
+    ?assertEqual(timeout, Error#api_error.type),
+    ?assertEqual(<<"Request timed out">>, Error#api_error.message),
+    ?assertEqual(timeout, maps:get(reason, Error#api_error.metadata)).
 
-connection_failure_test() ->
-    Error = openrouter_error:classify({failed_connect, some_reason}),
-    ?assertEqual(timeout, Error#api_error.type).
+failed_connect_nxdomain_test() ->
+    Reason = {failed_connect, [{to_address, {"openrouter.ai", 443}}, {inet, [inet], nxdomain}]},
+    Error = openrouter_error:classify(Reason),
+    ?assertEqual(connect_failed, Error#api_error.type),
+    ?assertEqual(<<"DNS lookup failed: nxdomain">>, Error#api_error.message),
+    ?assertEqual(Reason, maps:get(reason, Error#api_error.metadata)).
+
+failed_connect_ehostunreach_test() ->
+    Reason = {failed_connect, [{to_address, {"openrouter.ai", 443}}, {inet, [inet], ehostunreach}]},
+    Error = openrouter_error:classify(Reason),
+    ?assertEqual(connect_failed, Error#api_error.type),
+    ?assertEqual(<<"Host unreachable">>, Error#api_error.message),
+    ?assertEqual(Reason, maps:get(reason, Error#api_error.metadata)).
+
+failed_connect_econnrefused_test() ->
+    Reason = {failed_connect, [{to_address, {"openrouter.ai", 443}}, {inet, [inet], econnrefused}]},
+    Error = openrouter_error:classify(Reason),
+    ?assertEqual(connect_failed, Error#api_error.type),
+    ?assertEqual(<<"Connection refused">>, Error#api_error.message),
+    ?assertEqual(Reason, maps:get(reason, Error#api_error.metadata)).
+
+failed_connect_unknown_sub_error_test() ->
+    Reason = {failed_connect, [weird_unknown]},
+    Error = openrouter_error:classify(Reason),
+    ?assertEqual(connect_failed, Error#api_error.type),
+    %% The unknown sub-error falls through to the generic formatter;
+    %% we don't assert the exact string, only that it preserves the term.
+    Msg = Error#api_error.message,
+    ?assert(is_binary(Msg)),
+    ?assertNotEqual(nomatch, binary:match(Msg, <<"weird_unknown">>)),
+    ?assertEqual(Reason, maps:get(reason, Error#api_error.metadata)).
 
 unknown_error_test() ->
     Error = openrouter_error:classify(something_weird),
-    ?assertEqual(server_error, Error#api_error.type).
+    ?assertEqual(server_error, Error#api_error.type),
+    ?assertEqual(something_weird, maps:get(reason, Error#api_error.metadata)).
 
 %% from_body/1 -- parse error from response body map
 

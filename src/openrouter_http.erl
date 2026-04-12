@@ -11,8 +11,6 @@ get(Url, Auth, Timeout) ->
     case httpc:request(get, Request, [{timeout, Timeout}], [{body_format, binary}]) of
         {ok, {{_, StatusCode, _}, _RespHeaders, Body}} ->
             {ok, StatusCode, Body};
-        {error, {failed_connect, _}} ->
-            {error, timeout};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -26,8 +24,6 @@ post(Url, Body, Auth, Timeout) ->
     case httpc:request(post, Request, [{timeout, Timeout}], [{body_format, binary}]) of
         {ok, {{_, StatusCode, _}, _RespHeaders, RespBody}} ->
             {ok, StatusCode, RespBody};
-        {error, {failed_connect, _}} ->
-            {error, timeout};
         {error, Reason} ->
             {error, Reason}
     end.
