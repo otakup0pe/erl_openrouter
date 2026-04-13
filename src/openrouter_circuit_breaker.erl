@@ -53,7 +53,9 @@ handle_call(allow, _From, #state{cb_state = open} = State) ->
     {reply, {error, circuit_open}, State};
 handle_call(state, _From, #state{cb_state = CbState} = State) ->
     {reply, CbState, State};
-handle_call(_Request, _From, State) ->
+handle_call(Request, _From, State) ->
+    logger:warning("openrouter_circuit_breaker: unexpected call ~p",
+                   [Request]),
     {reply, {error, unknown}, State}.
 
 handle_cast(success, #state{cb_state = half_open} = State) ->
@@ -86,5 +88,7 @@ handle_cast(_Msg, State) ->
 
 handle_info(reset_timeout, #state{cb_state = open} = State) ->
     {noreply, State#state{cb_state = half_open, timer_ref = undefined}};
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    logger:warning("openrouter_circuit_breaker: unexpected info ~p",
+                   [Info]),
     {noreply, State}.

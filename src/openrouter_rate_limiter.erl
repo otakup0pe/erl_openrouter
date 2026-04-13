@@ -46,7 +46,9 @@ handle_call({acquire, _Count}, _From, State) ->
     {reply, {error, rate_limited}, State};
 handle_call(available, _From, #state{tokens = Tokens} = State) ->
     {reply, Tokens, State};
-handle_call(_Request, _From, State) ->
+handle_call(Request, _From, State) ->
+    logger:warning("openrouter_rate_limiter: unexpected call ~p",
+                   [Request]),
     {reply, {error, unknown}, State}.
 
 handle_cast(_Msg, State) ->
@@ -55,5 +57,7 @@ handle_cast(_Msg, State) ->
 handle_info(refill, #state{max_tokens = Max, refill_interval = Interval} = State) ->
     TimerRef = erlang:send_after(Interval, self(), refill),
     {noreply, State#state{tokens = Max, timer_ref = TimerRef}};
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    logger:warning("openrouter_rate_limiter: unexpected info ~p",
+                   [Info]),
     {noreply, State}.
