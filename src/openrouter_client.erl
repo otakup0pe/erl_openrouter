@@ -14,6 +14,7 @@
     max_retries :: non_neg_integer(),
     backoff_base :: pos_integer(),
     backoff_max :: pos_integer(),
+    extra_headers = [] :: [{string(), string()}],
     in_flight = #{} :: #{reference() => {term(), atom()}}
 }).
 
@@ -23,7 +24,8 @@
     timeout :: pos_integer(),
     max_retries :: non_neg_integer(),
     backoff_base :: pos_integer(),
-    backoff_max :: pos_integer()
+    backoff_max :: pos_integer(),
+    extra_headers = [] :: [{string(), string()}]
 }).
 
 start_link() ->
@@ -53,22 +55,34 @@ init(Opts) ->
     MaxRetries = maps:get(max_retries, Opts, 3),
     BackoffBase = maps:get(backoff_base, Opts, 1000),
     BackoffMax = maps:get(backoff_max, Opts, 30000),
+    ExtraHeaders = case maps:get(extra_headers, Opts, []) of
+                       L when is_list(L) -> L;
+                       _ -> []
+                   end,
     {ok, #state{
         auth = Auth,
         base_url = BaseUrl,
         timeout = Timeout,
         max_retries = MaxRetries,
         backoff_base = BackoffBase,
-        backoff_max = BackoffMax
+        backoff_max = BackoffMax,
+        extra_headers = ExtraHeaders
     }}.
 
 handle_call({chat, Messages, Opts}, From, State) ->
     Config = build_call_config(Opts, State),
     Url = Config#call_config.base_url ++ "/chat/completions",
-    Request = openrouter_chat:build_request(Messages, Opts),
-    NewState = spawn_post(From, chat, Url, Request, Config,
-                          fun openrouter_chat:parse_response/1, State),
-    {noreply, NewState};
+    try openrouter_chat:build_request(Messages, Opts) of
+        Request ->
+            NewState = spawn_post(From, chat, Url, Request, Config,
+                                  fun openrouter_chat:parse_response/1, State),
+            {noreply, NewState}
+    catch
+        error:{duplicate_tool_name, _} = Reason ->
+            {reply, {error, Reason}, State};
+        error:{invalid_tool, _} = Reason ->
+            {reply, {error, Reason}, State}
+    end;
 
 handle_call({embeddings, Input, Opts}, From, State) ->
     Config = build_call_config(Opts, State),
@@ -138,8 +152,17 @@ build_call_config(Opts, #state{} = State) ->
         timeout = resolve_request_timeout(Opts, State#state.timeout),
         max_retries = State#state.max_retries,
         backoff_base = State#state.backoff_base,
-        backoff_max = State#state.backoff_max
+        backoff_max = State#state.backoff_max,
+        extra_headers = resolve_extra_headers(Opts, State#state.extra_headers)
     }.
+
+resolve_extra_headers(Opts, Default) when is_map(Opts) ->
+    case maps:get(extra_headers, Opts, undefined) of
+        undefined -> Default;
+        L when is_list(L) -> L;
+        _ -> Default
+    end;
+resolve_extra_headers(_, Default) -> Default.
 
 resolve_request_auth(Opts, DefaultAuth) when is_map(Opts) ->
     case openrouter_auth:resolve(Opts) of
@@ -181,7 +204,8 @@ do_post_with_retry(Url, Request, Config, ParseFun) ->
     with_retry(fun() ->
         case openrouter_http:post(Url, Request,
                                   Config#call_config.auth,
-                                  Config#call_config.timeout) of
+                                  Config#call_config.timeout,
+                                  Config#call_config.extra_headers) of
             {ok, 200, Body} ->
                 ParseFun(Body);
             {ok, StatusCode, Body} when StatusCode =:= 429; StatusCode >= 500 ->
@@ -197,7 +221,8 @@ do_get_with_retry(Url, Config, ParseFun) ->
     with_retry(fun() ->
         case openrouter_http:get(Url,
                                  Config#call_config.auth,
-                                 Config#call_config.timeout) of
+                                 Config#call_config.timeout,
+                                 Config#call_config.extra_headers) of
             {ok, 200, Body} ->
                 ParseFun(Body);
             {ok, StatusCode, Body} when StatusCode =:= 429; StatusCode >= 500 ->
