@@ -4,6 +4,7 @@
 
 -export([build_request/2, parse_response/1]).
 -export([classify_finish_reason/1]).
+-export([extract_text_content/1]).
 
 -spec build_request(Messages :: [map()], Opts :: map()) -> binary().
 build_request(Messages, Opts) ->
@@ -33,12 +34,14 @@ parse_response(Body) ->
         {ok, #{<<"error">> := _} = ErrorMap} ->
             {error, openrouter_error:from_body(ErrorMap)};
         {ok, Map} ->
-            case validate_choices(maps:get(<<"choices">>, Map, [])) of
+            RawChoices = maps:get(<<"choices">>, Map, []),
+            case validate_choices(RawChoices) of
                 ok ->
+                    Choices = normalize_choices_content(RawChoices),
                     Response = #chat_response{
                         id = maps:get(<<"id">>, Map, undefined),
                         model = maps:get(<<"model">>, Map, undefined),
-                        choices = maps:get(<<"choices">>, Map, []),
+                        choices = Choices,
                         usage = maps:get(<<"usage">>, Map, #{}),
                         cost = maps:get(<<"cost">>, Map, undefined)
                     },
@@ -59,7 +62,62 @@ classify_finish_reason(<<"tool_calls">>) -> tool_calls;
 classify_finish_reason(<<"content_filter">>) -> content_filter;
 classify_finish_reason(Other) when is_binary(Other) -> Other.
 
+%% @doc Extract text content from a chat response choice message.
+%% Handles three content formats:
+%%   - Binary: plain text content (standard)
+%%   - List: content blocks (extended thinking models return
+%%     [{type: "thinking", ...}, {type: "text", text: "..."}])
+%%   - null: content is absent, check reasoning_content fallback
+%%
+%% Returns the text content as a binary, or null if no text found.
+-spec extract_text_content(map()) -> binary() | null.
+extract_text_content(#{<<"message">> := Msg}) ->
+    normalize_message_content(Msg);
+extract_text_content(_) ->
+    null.
+
 %% ---- Internal -------------------------------------------------------
+
+%% Normalize content in all choices so downstream consumers always
+%% see a binary or null in message.content, never a content blocks list.
+normalize_choices_content(Choices) ->
+    [normalize_choice_content(C) || C <- Choices].
+
+normalize_choice_content(#{<<"message">> := Msg} = Choice) ->
+    Choice#{<<"message">> => normalize_message(Msg)};
+normalize_choice_content(Choice) ->
+    Choice.
+
+normalize_message(Msg) ->
+    Content = normalize_message_content(Msg),
+    Msg#{<<"content">> => Content}.
+
+normalize_message_content(Msg) ->
+    case maps:get(<<"content">>, Msg, null) of
+        Bin when is_binary(Bin) ->
+            Bin;
+        Blocks when is_list(Blocks) ->
+            %% Content blocks format from extended thinking models.
+            %% Extract the text block(s), concatenate if multiple.
+            extract_text_from_blocks(Blocks);
+        _ ->
+            %% null or missing -- check reasoning_content fallback
+            %% (some providers surface response text here for thinking models)
+            case maps:get(<<"reasoning_content">>, Msg, undefined) of
+                RC when is_binary(RC), RC =/= <<>> -> RC;
+                _ -> null
+            end
+    end.
+
+extract_text_from_blocks([]) -> null;
+extract_text_from_blocks(Blocks) ->
+    Texts = [T || #{<<"type">> := <<"text">>, <<"text">> := T} <- Blocks,
+                  is_binary(T)],
+    case Texts of
+        [] -> null;
+        [Single] -> Single;
+        Multiple -> iolist_to_binary(lists:join(<<"\n">>, Multiple))
+    end.
 
 maybe_set(JsonKey, OptKey, Opts, Map) ->
     case maps:get(OptKey, Opts, undefined) of
