@@ -439,37 +439,25 @@ stream_through_client(_Config) ->
 
 stream_client_capacity(_Config) ->
     %% With max_in_flight=1, a second stream should be rejected while
-    %% the first is still active.
+    %% the first is still active. The in_flight slot is occupied from
+    %% the moment chat_stream returns {ok, ...} until the worker's
+    %% DOWN is processed -- no need to wait for the first chunk.
     SlowScenario = [
-        {0, content_chunk(<<"slow">>)},
-        {5000, finish_chunk(<<"stop">>)},
+        {5000, content_chunk(<<"slow">>)},
+        {0, finish_chunk(<<"stop">>)},
         {0, sse_done(), fin}
     ],
     mock_sse_handler:install(SlowScenario),
     Messages = messages(),
     %% Start the first stream -- occupies the single in-flight slot.
-    {ok, StreamRef1, WorkerPid1} = openrouter:chat_stream(Messages, #{}),
-    %% Wait for the first content event to confirm the worker is active.
-    %% The client path has more hops (gen_server -> spawn -> httpc -> mock)
-    %% so allow generous time for connection setup.
-    receive
-        {stream_event, StreamRef1, {content, <<"slow">>}} -> ok
-    after 10000 ->
-        ct:fail(did_not_receive_first_chunk)
-    end,
-    %% Verify worker is still alive before testing capacity
-    ?assert(is_process_alive(WorkerPid1)),
-    %% Second stream should fail with overloaded.
+    {ok, _StreamRef1, WorkerPid1} = openrouter:chat_stream(Messages, #{}),
+    %% The in_flight slot is occupied immediately after chat_stream
+    %% returns. The second call should fail.
     Result = openrouter:chat_stream(Messages, #{}),
     ?assertMatch({error, #api_error{type = overloaded}}, Result),
-    %% Clean up: cancel the first stream so the worker exits.
-    %% Best-effort -- the test assertion already passed above.
+    %% Clean up
     openrouter:cancel_stream(WorkerPid1),
-    receive
-        {stream_event, StreamRef1, {error, cancelled}} -> ok
-    after 2000 ->
-        ok  %% worker may have exited already
-    end.
+    timer:sleep(500).
 
 %% -- Internal helpers ------------------------------------------------
 
