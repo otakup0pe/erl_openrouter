@@ -2,7 +2,8 @@
     {description, "Erlang client for the OpenRouter API"},
     {vsn, "0.1.1"},
     {registered, [openrouter_sup, openrouter_client,
-                  openrouter_rate_limiter, openrouter_circuit_breaker]},
+                  openrouter_rate_limiter, openrouter_circuit_breaker,
+                  openrouter_usage]},
     {mod, {openrouter_app, []}},
     {applications, [
         kernel,

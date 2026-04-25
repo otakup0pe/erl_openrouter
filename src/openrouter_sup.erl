@@ -37,6 +37,12 @@ init([]) ->
             type => worker
         },
         #{
+            id => openrouter_usage,
+            start => {openrouter_usage, start_link, []},
+            restart => permanent,
+            type => worker
+        },
+        #{
             id => openrouter_client,
             start => {openrouter_client, start_link, []},
             restart => permanent,

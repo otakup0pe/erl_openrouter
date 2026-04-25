@@ -13,6 +13,8 @@
 -export([key_info/0]).
 -export([generation/1]).
 -export([credits/0]).
+-export([usage_snapshot/0, usage_snapshot/1, usage_reset/0, usage_reset/1,
+         usage_compute_cost/2]).
 
 -include("openrouter.hrl").
 
@@ -126,3 +128,45 @@ generation(GenId) ->
 -spec credits() -> {ok, map()} | {error, term()}.
 credits() ->
     openrouter_client:credits().
+
+%% @doc Snapshot of per-model token usage accumulated by this node.
+%%
+%% Returns a map keyed by model id, each value containing `requests',
+%% `prompt_tokens', `completion_tokens', `total_tokens'. Counts are
+%% in-process only -- they do not survive a node restart.
+-spec usage_snapshot() -> openrouter_usage:snapshot_map().
+usage_snapshot() ->
+    openrouter_usage:snapshot().
+
+%% @doc Snapshot of a single model's usage, or `undefined' if unseen.
+-spec usage_snapshot(Model :: binary()) ->
+    openrouter_usage:counts() | undefined.
+usage_snapshot(Model) ->
+    openrouter_usage:snapshot(Model).
+
+%% @doc Reset all per-model usage counters.
+-spec usage_reset() -> ok.
+usage_reset() ->
+    openrouter_usage:reset().
+
+%% @doc Reset a single model's usage counters.
+-spec usage_reset(Model :: binary()) -> ok.
+usage_reset(Model) ->
+    openrouter_usage:reset(Model).
+
+%% @doc Compute dollar cost from a usage snapshot and a price table.
+%%
+%% `PriceTable' maps model id to `#{prompt => Float, completion =>
+%% Float}', where each float is dollars per token. Pricing is
+%% available from {@link models/0} (each entry has a `pricing' object
+%% with `prompt' / `completion' as USD-per-token strings).
+%%
+%% Returns `#{models => #{Model => Cost}, missing_prices => [Model],
+%% total => TotalCost}'.
+-spec usage_compute_cost(openrouter_usage:snapshot_map(),
+                         openrouter_usage:price_table()) ->
+    #{models := #{binary() => float()},
+      missing_prices := [binary()],
+      total := float()}.
+usage_compute_cost(Snapshot, PriceTable) ->
+    openrouter_usage:compute_cost(Snapshot, PriceTable).

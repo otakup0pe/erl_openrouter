@@ -363,7 +363,8 @@ resolve_request_timeout(_, DefaultTimeout) ->
 
 spawn_post(From, Op, Url, Request, Config, ParseFun, State) ->
     {_Pid, MonRef} = spawn_monitor(fun() ->
-        Meta = #{operation => Op, model => extract_model(Request)},
+        Model = extract_model(Request),
+        Meta = #{operation => Op, model => Model},
         Result = openrouter_telemetry:span(
             [erl_openrouter, request],
             Meta,
@@ -372,6 +373,7 @@ spawn_post(From, Op, Url, Request, Config, ParseFun, State) ->
                 StopMeta = maps:merge(Meta, result_measurements(Res)),
                 {Res, StopMeta}
             end),
+        record_usage(Model, Result),
         gen_server:reply(From, Result)
     end),
     track_worker(From, Op, MonRef, State).
@@ -526,3 +528,10 @@ result_measurements({error, #api_error{type = Type, code = Code}}) ->
     #{status => error, error_type => Type, status_code => Code};
 result_measurements({error, _}) ->
     #{status => error}.
+
+record_usage(Model, {ok, #chat_response{usage = Usage}}) ->
+    openrouter_usage:record(Model, Usage);
+record_usage(Model, {ok, #embedding_response{usage = Usage}}) ->
+    openrouter_usage:record(Model, Usage);
+record_usage(_, _) ->
+    ok.
