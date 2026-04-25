@@ -75,7 +75,7 @@ tool_calls(#stream_state{tool_calls = Map, tc_order = Order}) ->
     [to_tool_call(maps:get(Idx, Map)) || Idx <- lists:reverse(Order)].
 
 %% @doc Return the finish reason, or `undefined' if the stream has not finished.
--spec finish_reason(state()) -> undefined | atom() | binary().
+-spec finish_reason(state()) -> undefined | stop | length | tool_calls | content_filter | binary().
 finish_reason(#stream_state{finish = F}) -> F.
 
 %% @doc Return whether the server has sent the `[DONE]' sentinel.

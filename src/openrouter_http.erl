@@ -62,12 +62,12 @@ post_stream(Url, Body, Auth, Timeout, ExtraHeaders) ->
         {error, Reason} -> {error, Reason}
     end.
 
--spec headers(Auth :: term()) -> [{string(), string()}].
+-spec headers(Auth :: term()) -> [{string(), string()}, ...].
 headers(Auth) ->
     headers(Auth, []).
 
 -spec headers(Auth :: term(), ExtraHeaders :: extra_headers()) ->
-    [{string(), string()}].
+    [{string(), string()}, ...].
 headers(Auth, ExtraHeaders) when is_list(ExtraHeaders) ->
     Base = auth_headers(Auth),
     merge_headers(Base, ExtraHeaders).

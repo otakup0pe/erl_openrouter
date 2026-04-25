@@ -12,10 +12,12 @@ OpenRouter API. Apache 2.0 licensed.
 ```bash
 make test          # docker-based, runs eunit + ct (recommended, no API key needed)
 make test-all      # test + integration (full suite)
-make test-local    # local, requires OTP 27+
+make test-local    # local eunit + ct + dialyzer, requires OTP 27+
 make test-eunit    # eunit only
 make test-ct       # common test only (excludes integration/)
+make test-dialyzer # dialyzer type analysis
 make integration   # real API tests against OpenRouter (needs OPENROUTER_API_KEY)
+make distclean     # nuke _build + docker volumes (fixes stale beam issues)
 ```
 
 `warnings_as_errors` is enabled. All code must compile cleanly.

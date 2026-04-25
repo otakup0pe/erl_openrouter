@@ -41,7 +41,6 @@ encode_tool_function(#tool_function{name = Name,
     Base = #{<<"name">> => Name,
              <<"parameters">> => Params},
     WithDesc = case Desc of
-                   undefined -> Base;
                    <<>> -> Base;
                    _ -> Base#{<<"description">> => Desc}
                end,
@@ -66,7 +65,7 @@ encode_tool_choice(Other) ->
     erlang:error({badarg, {tool_choice, Other}}).
 
 %% @doc Decode a list of tool-call maps from an API response into `#tool_call{}' records.
--spec decode_tool_calls(list()) -> [#tool_call{}].
+-spec decode_tool_calls([map()]) -> [#tool_call{}].
 decode_tool_calls(List) when is_list(List) ->
     [decode_tool_call(Item) || Item <- List].
 
@@ -85,7 +84,8 @@ decode_tool_call(Map) when is_map(Map) ->
 %%
 %% Content is passed through as an opaque binary; the caller is responsible
 %% for serialising the tool's return value.
--spec encode_tool_result_message(binary(), binary()) -> map().
+-spec encode_tool_result_message(binary(), binary()) ->
+    #{<<_:32, _:_*8>> => binary()}.
 encode_tool_result_message(ToolCallId, Content)
   when is_binary(ToolCallId), is_binary(Content) ->
     #{<<"role">> => <<"tool">>,

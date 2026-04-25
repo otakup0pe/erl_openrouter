@@ -30,7 +30,10 @@ build_request(Messages, Opts) ->
     {ok, Json} = openrouter_json:encode(WithChoice),
     Json.
 
--spec parse_response(Body :: binary()) -> {ok, #chat_response{}} | {error, term()}.
+-spec parse_response(Body :: binary()) ->
+    {ok, #chat_response{}} |
+    {error, #api_error{} |
+            {parse_error, {parse_error, badarg | {term(), term()} | {term(), term(), term()}}}}.
 parse_response(Body) ->
     case openrouter_json:decode(Body) of
         {ok, #{<<"error">> := _} = ErrorMap} ->

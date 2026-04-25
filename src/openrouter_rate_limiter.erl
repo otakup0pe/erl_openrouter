@@ -36,15 +36,15 @@ start_link(Opts) ->
 start_link(Name, Opts) ->
     gen_server:start_link({local, Name}, ?MODULE, Opts, []).
 
--spec acquire(pid()) -> ok | {error, rate_limited}.
+-spec acquire(pid() | atom()) -> ok | {error, rate_limited}.
 acquire(Pid) ->
     acquire(Pid, 1).
 
--spec acquire(pid(), pos_integer()) -> ok | {error, rate_limited}.
+-spec acquire(pid() | atom(), pos_integer()) -> ok | {error, rate_limited}.
 acquire(Pid, Count) ->
     gen_server:call(Pid, {acquire, Count}).
 
--spec available(pid()) -> non_neg_integer().
+-spec available(pid() | atom()) -> non_neg_integer().
 available(Pid) ->
     gen_server:call(Pid, available).
 

@@ -42,19 +42,19 @@ start_link(Opts) ->
 start_link(Name, Opts) ->
     gen_server:start_link({local, Name}, ?MODULE, Opts, []).
 
--spec allow(pid()) -> ok | {error, circuit_open}.
-allow(Pid) ->
-    gen_server:call(Pid, allow).
+-spec allow(pid() | atom()) -> ok | {error, circuit_open}.
+allow(Server) ->
+    gen_server:call(Server, allow).
 
--spec state(pid()) -> closed | open | half_open.
-state(Pid) ->
-    gen_server:call(Pid, state).
+-spec state(pid() | atom()) -> closed | open | half_open.
+state(Server) ->
+    gen_server:call(Server, state).
 
--spec record_success(pid()) -> ok.
-record_success(Pid) ->
-    gen_server:cast(Pid, success).
+-spec record_success(pid() | atom()) -> ok.
+record_success(Server) ->
+    gen_server:cast(Server, success).
 
--spec record_failure(pid()) -> ok.
+-spec record_failure(pid() | atom()) -> ok.
 record_failure(Pid) ->
     gen_server:cast(Pid, failure).
 
@@ -138,6 +138,6 @@ handle_info(Info, State) ->
 
 cancel_timer(undefined) -> ok;
 cancel_timer(Ref) ->
-    erlang:cancel_timer(Ref),
+    _ = erlang:cancel_timer(Ref),
     %% Flush any already-delivered message
     receive reset_timeout -> ok after 0 -> ok end.

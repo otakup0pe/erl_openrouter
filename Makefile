@@ -1,6 +1,6 @@
 ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: all compile test test-all test-local test-eunit test-ct clean distclean docker-build docker-test dialyzer shell integration test-integration
+.PHONY: all compile test test-all test-local test-eunit test-ct test-dialyzer clean distclean docker-build docker-test dialyzer shell integration test-integration
 
 REBAR3 ?= rebar3
 COMPOSE ?= docker compose -f docker-compose.test.yml
@@ -20,7 +20,10 @@ docker-build:
 docker-test: docker-build
 	$(COMPOSE) run --rm test
 
-test-local: test-eunit test-ct
+test-local: test-eunit test-ct test-dialyzer
+
+test-dialyzer:
+	$(REBAR3) dialyzer
 
 test-eunit:
 	$(REBAR3) eunit --app=erl_openrouter

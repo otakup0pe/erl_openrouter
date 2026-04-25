@@ -15,13 +15,17 @@
 -export([local_error/2, local_error/3]).
 -export([truncate_body/1]).
 
+-type error_type() :: auth_error | circuit_open | overloaded
+                    | rate_limited | worker_crashed.
+-export_type([error_type/0]).
+
 %% @doc Build a client-originated error
--spec local_error(atom(), binary()) -> #api_error{}.
+-spec local_error(error_type(), binary()) -> #api_error{}.
 local_error(Type, Message) ->
     local_error(Type, Message, #{}).
 
 %% @doc Build a client-originated error with extra metadata.
--spec local_error(atom(), binary(), map()) -> #api_error{}.
+-spec local_error(error_type(), binary(), map()) -> #api_error{}.
 local_error(Type, Message, Extra) ->
     #api_error{type = Type, message = Message,
                metadata = Extra#{source => local}}.

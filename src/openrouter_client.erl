@@ -509,13 +509,12 @@ extract_model(RequestBinary) when is_binary(RequestBinary) ->
     try
         case openrouter_json:decode(RequestBinary) of
             {ok, #{<<"model">> := Model}} when is_binary(Model) -> Model;
-            _ -> undefined
+            {ok, _} -> undefined;
+            {error, _} -> undefined
         end
     catch
         error:badarg -> undefined
-    end;
-extract_model(_) ->
-    undefined.
+    end.
 
 result_measurements({ok, #chat_response{usage = Usage}}) when is_map(Usage) ->
     #{status => ok,

@@ -32,7 +32,7 @@ chat(Messages, Opts) ->
 
 %% @doc Start a streaming chat completion with default options.
 %% @equiv chat_stream(Messages, #{})
--spec chat_stream(Messages :: [map()]) -> {ok, reference()} | {error, term()}.
+-spec chat_stream(Messages :: [map()]) -> {ok, reference(), pid()} | {error, term()}.
 chat_stream(Messages) ->
     chat_stream(Messages, #{}).
 

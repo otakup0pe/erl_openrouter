@@ -7,7 +7,7 @@
 -export([encode/1, decode/1]).
 -export([maybe_set/4]).
 
--spec encode(term()) -> {ok, binary()} | {error, {parse_error, term()}}.
+-spec encode(term()) -> {ok, binary()} | {error, {parse_error, {badarg, term()}}}.
 encode(Term) ->
     try
         case has_otp_json() of
