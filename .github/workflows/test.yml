@@ -45,9 +45,28 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Install avakas
-        run: pip install avakas
-
-      - name: Autobump
+      - name: Check for version bump hint
+        id: bump_check
         run: |
-          avakas autobump . --flavor git
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="${LAST_TAG}..HEAD"
+          fi
+          MESSAGES=$(git log --format=%B "$RANGE")
+          if echo "$MESSAGES" | grep -qiE '#major|bump:major'; then
+            echo "part=major" >> "$GITHUB_OUTPUT"
+          elif echo "$MESSAGES" | grep -qiE '#minor|bump:minor'; then
+            echo "part=minor" >> "$GITHUB_OUTPUT"
+          elif echo "$MESSAGES" | grep -qiE '#patch|bump:patch'; then
+            echo "part=patch" >> "$GITHUB_OUTPUT"
+          else
+            echo "part=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump version
+        if: steps.bump_check.outputs.part != ''
+        run: |
+          pip install avakas
+          avakas bump . ${{ steps.bump_check.outputs.part }} --flavor git
