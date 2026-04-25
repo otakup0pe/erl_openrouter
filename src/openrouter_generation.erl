@@ -1,10 +1,12 @@
--module(openrouter_credits).
+-module(openrouter_generation).
 %% @private
 %% Internal module -- use {@link openrouter} for the public API.
 
--include("openrouter.hrl").
+%% @doc Internal module for generation stats parsing.
 
 -export([parse_response/1]).
+
+-include("openrouter.hrl").
 
 -spec parse_response(Body :: binary()) -> {ok, map()} | {error, term()}.
 parse_response(Body) ->

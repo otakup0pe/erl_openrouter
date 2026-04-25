@@ -1,0 +1,29 @@
+name: Integration
+
+on:
+  push:
+    branches: [mainline]
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    # Only run with secrets -- fork PRs can't access them
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    container:
+      image: erlang:27-slim
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: apt-get update && apt-get install -y make git curl
+
+      - name: Install rebar3
+        run: |
+          curl -fsSL https://github.com/erlang/rebar3/releases/latest/download/rebar3 -o /usr/local/bin/rebar3
+          chmod +x /usr/local/bin/rebar3
+
+      - name: Run integration tests
+        run: make test-integration

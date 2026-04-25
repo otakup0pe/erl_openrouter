@@ -1,20 +1,15 @@
 -module(openrouter_stream).
+%% @private
+%% Internal SSE parser used by {@link openrouter_stream_worker}.
 
-%% Incremental parser for OpenRouter/OpenAI-compatible streaming
-%% chat completions. Consumes raw SSE chunks and emits either:
+%% @doc Incremental SSE parser for streaming chat completions.
 %%
-%%   {content, Delta, State1}       %% text token delta
-%%   {tool_call_delta, N, State1}   %% at least one tool_call accumulator advanced
-%%   {finish, Reason, State1}       %% finish_reason observed on a choice
-%%   {done, State1}                 %% server sent "data: [DONE]"
+%% Used internally by the stream worker. Feed raw SSE chunks via
+%% {@link feed/2} and receive a list of typed events
+%% (`content', `tool_call_delta', `finish', `done', `parse_error').
 %%
-%% At any time, callers can ask for the current accumulated content
-%% text and tool calls via content/1 and tool_calls/1.
-%%
-%% The parser owns tool-call merging: tool-call deltas are keyed by
-%% index in the wire protocol, but we project them to a list of
-%% #tool_call{} records on close, correlated by id (plan requirement:
-%% never expose the transient index to callers).
+%% For the public streaming API, use {@link openrouter:chat_stream/2}
+%% which handles transport and delivers parsed events as messages.
 
 -include("openrouter.hrl").
 
@@ -49,13 +44,17 @@
       {content, binary()}
     | {tool_call_delta, integer()}
     | {finish, term()}
+    | {parse_error, binary()}
     | done.
 
-%% ---- Public API ----------------------------------------------------
-
+%% @doc Create a fresh stream parser state.
 -spec new() -> state().
 new() -> #stream_state{}.
 
+%% @doc Feed a raw SSE binary chunk into the parser.
+%%
+%% Returns a list of events produced by this chunk and the updated state.
+%% Partial lines are buffered internally until a newline arrives.
 -spec feed(binary(), state()) -> {[event()], state()}.
 feed(Chunk, #stream_state{buffer = Buf} = S0) when is_binary(Chunk) ->
     Combined = <<Buf/binary, Chunk/binary>>,
@@ -63,20 +62,25 @@ feed(Chunk, #stream_state{buffer = Buf} = S0) when is_binary(Chunk) ->
     S1 = S0#stream_state{buffer = Rest},
     process_lines(Lines, S1, []).
 
+%% @doc Return all content text accumulated so far.
 -spec content(state()) -> binary().
 content(#stream_state{content = C}) -> C.
 
+%% @doc Return tool calls accumulated so far as `#tool_call{}' records.
+%%
+%% Merges incremental deltas by index internally; the returned list is
+%% ordered by first appearance and does not expose wire-protocol indices.
 -spec tool_calls(state()) -> [#tool_call{}].
 tool_calls(#stream_state{tool_calls = Map, tc_order = Order}) ->
     [to_tool_call(maps:get(Idx, Map)) || Idx <- lists:reverse(Order)].
 
+%% @doc Return the finish reason, or `undefined' if the stream has not finished.
 -spec finish_reason(state()) -> undefined | atom() | binary().
 finish_reason(#stream_state{finish = F}) -> F.
 
+%% @doc Return whether the server has sent the `[DONE]' sentinel.
 -spec done(state()) -> boolean().
 done(#stream_state{done = D}) -> D.
-
-%% ---- Line splitting ------------------------------------------------
 
 split_lines(Bin) ->
     split_lines(Bin, 0, []).
@@ -98,8 +102,6 @@ strip_cr(B) ->
         true -> binary:part(B, 0, Sz - 1);
         false -> B
     end.
-
-%% ---- Event-loop over parsed lines ----------------------------------
 
 process_lines([], State, Events) ->
     {lists:reverse(Events), State};
@@ -135,9 +137,9 @@ handle_payload(Payload, State) ->
             Choices = maps:get(<<"choices">>, Map, []),
             handle_choices(Choices, State, []);
         {ok, _} ->
-            {[], State};
+            {[{parse_error, Payload}], State};
         {error, _} ->
-            {[], State}
+            {[{parse_error, Payload}], State}
     end.
 
 handle_choices([], State, Events) ->

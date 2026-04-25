@@ -19,6 +19,10 @@ start() ->
     start(#{}).
 
 start(_Opts) ->
+    %% Idempotent: clean up any leftover state from a prior suite
+    %% that crashed without calling stop().
+    catch cowboy:stop_listener(mock_openrouter_listener),
+    catch ets:delete(?MOCK_TAB),
     ets:new(?MOCK_TAB, [named_table, public, set]),
     ets:insert(?MOCK_TAB, {response, default_success_response()}),
     ets:insert(?MOCK_TAB, {handler, undefined}),
@@ -31,7 +35,8 @@ start(_Opts) ->
             {"/api/v1/models", ?MODULE, models},
             {"/api/v1/auth/key", ?MODULE, auth_key},
             {"/api/v1/credits", ?MODULE, credits},
-            {"/api/v1/embeddings", ?MODULE, embeddings}
+            {"/api/v1/embeddings", ?MODULE, embeddings},
+            {"/api/v1/generation", ?MODULE, generation}
         ]}
     ]),
     {ok, _} = cowboy:start_clear(mock_openrouter_listener,

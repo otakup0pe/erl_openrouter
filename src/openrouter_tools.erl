@@ -1,19 +1,11 @@
 -module(openrouter_tools).
 
-%% Encode/decode helpers for the OpenRouter tool-use API surface.
+%% @doc Encode/decode helpers for the OpenRouter tool-use API surface.
 %%
-%% Design notes:
-%%
-%% - We treat `arguments` (on tool_calls) and `content` (on tool
-%%   result messages) as opaque binaries. Callers know the tool
-%%   schema; we do not JSON-decode on their behalf.
-%% - Parallel tool calls are correlated by `id` / `tool_call_id`;
-%%   we do not expose an array index to the caller.
-%% - The primary `tool_choice` surface is restricted to OpenRouter's
-%%   documented ToolChoice shape: auto | none | {function, Name}.
-%%   We also pass through raw binary/map values so a caller can
-%%   reach providers' undocumented extensions if they know what
-%%   they're doing.
+%% Handles conversion between Erlang `#tool{}' / `#tool_call{}' records and
+%% the JSON wire format expected by the OpenRouter API. Tool-call arguments
+%% and tool-result content are treated as opaque binaries -- callers own
+%% the schema and are responsible for their own JSON encoding/decoding.
 
 -include("openrouter.hrl").
 
@@ -29,18 +21,17 @@
 
 -type tool_choice() :: undefined | auto | none | {function, binary()} | binary() | map().
 
-%% ---- Encoding -------------------------------------------------------
-
+%% @doc Encode a list of tool definitions for the API request body.
 -spec encode_tools([#tool{} | map()]) -> [map()].
 encode_tools(Tools) when is_list(Tools) ->
     [encode_tool(T) || T <- Tools].
 
+%% @doc Encode a single `#tool{}' record (or pass through a raw map).
 -spec encode_tool(#tool{} | map()) -> map().
 encode_tool(#tool{type = Type, function = #tool_function{} = Fun}) ->
     #{<<"type">> => Type,
       <<"function">> => encode_tool_function(Fun)};
 encode_tool(Map) when is_map(Map) ->
-    %% Accept caller-supplied raw maps as-is.
     Map.
 
 encode_tool_function(#tool_function{name = Name,
@@ -59,6 +50,9 @@ encode_tool_function(#tool_function{name = Name,
         false -> WithDesc
     end.
 
+%% @doc Encode a `tool_choice()' value for the API request body.
+%%
+%% Accepts `auto', `none', `{function, Name}', or a raw binary/map passthrough.
 -spec encode_tool_choice(tool_choice()) -> undefined | binary() | map().
 encode_tool_choice(undefined) -> undefined;
 encode_tool_choice(auto) -> <<"auto">>;
@@ -71,12 +65,12 @@ encode_tool_choice(Map) when is_map(Map) -> Map;
 encode_tool_choice(Other) ->
     erlang:error({badarg, {tool_choice, Other}}).
 
-%% ---- Decoding -------------------------------------------------------
-
+%% @doc Decode a list of tool-call maps from an API response into `#tool_call{}' records.
 -spec decode_tool_calls(list()) -> [#tool_call{}].
 decode_tool_calls(List) when is_list(List) ->
     [decode_tool_call(Item) || Item <- List].
 
+%% @doc Decode a single tool-call map into a `#tool_call{}' record.
 -spec decode_tool_call(map()) -> #tool_call{}.
 decode_tool_call(Map) when is_map(Map) ->
     Fun = maps:get(<<"function">>, Map, #{}),
@@ -87,11 +81,10 @@ decode_tool_call(Map) when is_map(Map) ->
         function_arguments = maps:get(<<"arguments">>, Fun, <<>>)
     }.
 
-%% ---- Follow-up messages ---------------------------------------------
-
-%% Build a role=tool follow-up message carrying the result of one
-%% tool call. Content is passed through as an opaque binary; the
-%% caller decides how to serialise the tool's return value.
+%% @doc Build a `role=tool' follow-up message for a completed tool call.
+%%
+%% Content is passed through as an opaque binary; the caller is responsible
+%% for serialising the tool's return value.
 -spec encode_tool_result_message(binary(), binary()) -> map().
 encode_tool_result_message(ToolCallId, Content)
   when is_binary(ToolCallId), is_binary(Content) ->
@@ -99,11 +92,10 @@ encode_tool_result_message(ToolCallId, Content)
       <<"tool_call_id">> => ToolCallId,
       <<"content">> => Content}.
 
-%% ---- Validation -----------------------------------------------------
-
-%% Validate a tools list: each tool must have a function definition
-%% with a binary name and a map parameters field; names must be
-%% unique across the list.
+%% @doc Validate a tools list before sending it to the API.
+%%
+%% Each tool must have a function definition with a binary name and a map
+%% parameters field. Names must be unique across the list.
 -spec validate_tools([#tool{} | map()]) ->
     ok | {error, {duplicate_tool_name, binary()}}
        | {error, {invalid_tool, term()}}.

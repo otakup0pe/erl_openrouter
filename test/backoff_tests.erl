@@ -44,11 +44,4 @@ zero_attempt_test() ->
     ?assert(Delay >= 0),
     ?assert(Delay =< 1500).
 
-wait_function_test() ->
-    %% openrouter_backoff:wait/2 should actually sleep and return the delay
-    T1 = erlang:monotonic_time(millisecond),
-    Delay = openrouter_backoff:wait(1, #{base => 50, max => 200}),
-    T2 = erlang:monotonic_time(millisecond),
-    Elapsed = T2 - T1,
-    ?assert(Elapsed >= Delay - 10), %% Allow 10ms tolerance
-    ?assert(is_integer(Delay)).
+

@@ -30,3 +30,32 @@ headers_auth_format_test() ->
     Headers = openrouter_http:headers({ok, <<"my-key">>}),
     {"Authorization", AuthValue} = lists:keyfind("Authorization", 1, Headers),
     ?assertEqual("Bearer my-key", AuthValue).
+
+%% -- parse_retry_after tests -----------------------------------------
+
+parse_retry_after_seconds_test() ->
+    Headers = [{"retry-after", "30"}],
+    ?assertEqual(30, openrouter_http:parse_retry_after(Headers)).
+
+parse_retry_after_zero_test() ->
+    Headers = [{"retry-after", "0"}],
+    ?assertEqual(undefined, openrouter_http:parse_retry_after(Headers)).
+
+parse_retry_after_negative_test() ->
+    Headers = [{"retry-after", "-5"}],
+    ?assertEqual(undefined, openrouter_http:parse_retry_after(Headers)).
+
+parse_retry_after_not_a_number_test() ->
+    Headers = [{"retry-after", "not-a-number"}],
+    ?assertEqual(undefined, openrouter_http:parse_retry_after(Headers)).
+
+parse_retry_after_mixed_case_header_test() ->
+    Headers = [{"Retry-After", "45"}],
+    ?assertEqual(45, openrouter_http:parse_retry_after(Headers)).
+
+parse_retry_after_missing_header_test() ->
+    Headers = [{"content-type", "application/json"}],
+    ?assertEqual(undefined, openrouter_http:parse_retry_after(Headers)).
+
+parse_retry_after_empty_headers_test() ->
+    ?assertEqual(undefined, openrouter_http:parse_retry_after([])).

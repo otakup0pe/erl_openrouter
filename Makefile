@@ -1,9 +1,9 @@
 ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: all compile test local-test local-eunit local-ct clean docker-build docker-test dialyzer shell
+.PHONY: all compile test test-all test-local test-eunit test-ct clean distclean docker-build docker-test dialyzer shell integration test-integration
 
 REBAR3 ?= rebar3
-DOCKER_IMAGE ?= erl-openrouter-test:latest
+COMPOSE ?= docker compose -f docker-compose.test.yml
 
 all: compile
 
@@ -12,25 +12,39 @@ compile:
 
 test: docker-test
 
+test-all: docker-test integration
+
 docker-build:
-	docker build -t $(DOCKER_IMAGE) -f Dockerfile.test .
+	$(COMPOSE) build
 
 docker-test: docker-build
-	docker run -t --rm -v $(PWD):/app -w /app $(DOCKER_IMAGE) make local-test
+	$(COMPOSE) run --rm test
 
-local-test: local-eunit local-ct
+test-local: test-eunit test-ct
 
-local-eunit:
-	$(REBAR3) eunit
+test-eunit:
+	$(REBAR3) eunit --app=erl_openrouter
 
-local-ct:
-	$(REBAR3) ct
+test-ct:
+	$(REBAR3) ct --dir test
 
 clean:
 	$(REBAR3) clean
+
+distclean: clean
+	rm -rf _build
+	$(COMPOSE) down -v
 
 dialyzer:
 	$(REBAR3) dialyzer
 
 shell:
 	$(REBAR3) shell
+
+integration: docker-build
+	$(COMPOSE) run --rm \
+		-e OPENROUTER_API_KEY=$${OPENROUTER_API_KEY} \
+		test make test-integration
+
+test-integration:
+	$(REBAR3) ct --dir test/integration

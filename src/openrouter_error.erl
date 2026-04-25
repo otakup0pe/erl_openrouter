@@ -1,27 +1,47 @@
 -module(openrouter_error).
+%% @private
+%% Internal module -- use {@link openrouter} for the public API.
+
+%% @doc Error classification and construction for the OpenRouter client.
+%%
+%% Converts HTTP status codes, transport failures, and JSON error bodies into
+%% uniform `#api_error{}' records. Use {@link classify/1} for transport errors,
+%% {@link classify/2} for HTTP-level errors, and {@link local_error/2} for
+%% client-originated errors.
 
 -include("openrouter.hrl").
 
 -export([classify/1, classify/2, from_body/1]).
+-export([local_error/2, local_error/3]).
+-export([truncate_body/1]).
 
+%% @doc Build a client-originated error
+-spec local_error(atom(), binary()) -> #api_error{}.
+local_error(Type, Message) ->
+    local_error(Type, Message, #{}).
+
+%% @doc Build a client-originated error with extra metadata.
+-spec local_error(atom(), binary(), map()) -> #api_error{}.
+local_error(Type, Message, Extra) ->
+    #api_error{type = Type, message = Message,
+               metadata = Extra#{source => local}}.
+
+%% @doc Classify a transport-level error into an `#api_error{}' record.
 -spec classify(Reason :: term()) -> #api_error{}.
 classify(timeout = Reason) ->
     #api_error{type = timeout, message = <<"Request timed out">>,
-               metadata = #{reason => Reason}};
+               metadata = #{reason => Reason, source => remote}};
 classify({failed_connect, Inner} = Reason) when is_list(Inner) ->
     Message = connect_failure_message(Inner),
     #api_error{type = connect_failed, message = Message,
-               metadata = #{reason => Reason}};
+               metadata = #{reason => Reason, source => remote}};
 classify(Reason) ->
     #api_error{type = server_error,
                message = iolist_to_binary(io_lib:format("~p", [Reason])),
-               metadata = #{reason => Reason}}.
+               metadata = #{reason => Reason, source => remote}}.
 
-%% Walk the inner proplist from httpc's {failed_connect, [...]} error
-%% and produce a human-readable message that names the specific
-%% sub-cause. We intentionally do NOT catch-all the inner cause --
-%% unknown sub-errors fall through to a generic formatter so the log
-%% still carries the term, but named cases get friendlier messages.
+%% Produce human-readable messages from httpc error tuple. Bubble up
+%% details so consumers can actually see details.
 connect_failure_message(Inner) ->
     Cause = extract_connect_cause(Inner),
     format_connect_cause(Cause).
@@ -52,18 +72,26 @@ format_connect_cause({tls_alert, _} = Alert) ->
 format_connect_cause(Other) ->
     iolist_to_binary(io_lib:format("Connect failed: ~p", [Other])).
 
+%% @doc Classify an HTTP error response by status code and body.
 -spec classify(StatusCode :: integer(), Body :: binary()) -> #api_error{}.
 classify(StatusCode, Body) ->
     BaseError = status_to_error(StatusCode),
     case openrouter_json:decode(Body) of
         {ok, #{<<"error">> := ErrorMap}} ->
+            ServerMeta = maps:get(<<"metadata">>, ErrorMap, #{}),
             BaseError#api_error{
                 message = maps:get(<<"message">>, ErrorMap, BaseError#api_error.message),
-                metadata = maps:get(<<"metadata">>, ErrorMap, #{})
+                metadata = ServerMeta#{source => remote}
             };
         _ ->
-            BaseError
+            BaseError#api_error{
+                metadata = (BaseError#api_error.metadata)#{source => remote,
+                                                           raw_body => truncate_body(Body)}
+            }
     end.
+
+truncate_body(Body) when byte_size(Body) =< 512 -> Body;
+truncate_body(Body) -> binary:part(Body, 0, 512).
 
 -spec from_body(map()) -> #api_error{}.
 from_body(#{<<"error">> := #{<<"code">> := Code} = ErrorMap}) ->

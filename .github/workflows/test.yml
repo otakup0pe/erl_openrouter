@@ -1,0 +1,56 @@
+name: Test
+
+on:
+  push:
+    branches: [mainline]
+  pull_request:
+    branches: [mainline]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        otp: ['27']
+    container:
+      image: erlang:${{ matrix.otp }}-slim
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: apt-get update && apt-get install -y make git curl
+
+      - name: Install rebar3
+        run: |
+          curl -fsSL https://github.com/erlang/rebar3/releases/latest/download/rebar3 -o /usr/local/bin/rebar3
+          chmod +x /usr/local/bin/rebar3
+
+      - name: Run tests
+        run: make test-local
+
+      - name: Dialyzer
+        run: make dialyzer
+
+  maybe_bump:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/mainline'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install avakas
+        run: pip install avakas
+
+      - name: Autobump
+        run: |
+          avakas autobump . --flavor git

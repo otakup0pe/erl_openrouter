@@ -67,7 +67,8 @@ error_with_metadata_test() ->
         }
     }),
     Error = openrouter_error:classify(429, Body),
-    ?assertEqual(#{<<"retry_after">> => 30}, Error#api_error.metadata).
+    ?assertEqual(30, maps:get(<<"retry_after">>, Error#api_error.metadata)),
+    ?assertEqual(remote, maps:get(source, Error#api_error.metadata)).
 
 %% classify/1 -- connection-level errors
 %%

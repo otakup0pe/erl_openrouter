@@ -1,4 +1,6 @@
 -module(openrouter_embeddings).
+%% @private
+%% Internal module -- use {@link openrouter} for the public API.
 
 -include("openrouter.hrl").
 
@@ -37,7 +39,4 @@ parse_response(Body) ->
     end.
 
 maybe_set(JsonKey, OptKey, Opts, Map) ->
-    case maps:get(OptKey, Opts, undefined) of
-        undefined -> Map;
-        Value -> Map#{JsonKey => Value}
-    end.
+    openrouter_json:maybe_set(JsonKey, OptKey, Opts, Map).

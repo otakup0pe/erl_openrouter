@@ -1,48 +1,65 @@
 -module(openrouter_http).
+%% @private
+%% Internal module -- use {@link openrouter} for the public API.
 
--export([get/3, get/4, post/4, post/5]).
+-export([get/3, get/4, post/4, post/5, post_stream/5]).
 -export([headers/1, headers/2]).
+-export([parse_retry_after/1]).
 
 -type extra_header() :: {string(), string()}.
 -type extra_headers() :: [extra_header()].
+-type resp_headers() :: [{string(), string()}].
 
--export_type([extra_header/0, extra_headers/0]).
+-export_type([extra_header/0, extra_headers/0, resp_headers/0]).
 
 -spec get(Url :: string(), Auth :: term(), Timeout :: pos_integer()) ->
-    {ok, integer(), binary()} | {error, term()}.
+    {ok, integer(), resp_headers(), binary()} | {error, term()}.
 get(Url, Auth, Timeout) ->
     get(Url, Auth, Timeout, []).
 
 -spec get(Url :: string(), Auth :: term(), Timeout :: pos_integer(),
           ExtraHeaders :: extra_headers()) ->
-    {ok, integer(), binary()} | {error, term()}.
+    {ok, integer(), resp_headers(), binary()} | {error, term()}.
 get(Url, Auth, Timeout, ExtraHeaders) ->
     Headers = headers(Auth, ExtraHeaders),
     Request = {Url, Headers},
     case httpc:request(get, Request, [{timeout, Timeout}], [{body_format, binary}]) of
-        {ok, {{_, StatusCode, _}, _RespHeaders, Body}} ->
-            {ok, StatusCode, Body};
+        {ok, {{_, StatusCode, _}, RespHeaders, Body}} ->
+            {ok, StatusCode, RespHeaders, Body};
         {error, Reason} ->
             {error, Reason}
     end.
 
 -spec post(Url :: string(), Body :: binary(), Auth :: term(), Timeout :: pos_integer()) ->
-    {ok, integer(), binary()} | {error, term()}.
+    {ok, integer(), resp_headers(), binary()} | {error, term()}.
 post(Url, Body, Auth, Timeout) ->
     post(Url, Body, Auth, Timeout, []).
 
 -spec post(Url :: string(), Body :: binary(), Auth :: term(), Timeout :: pos_integer(),
            ExtraHeaders :: extra_headers()) ->
-    {ok, integer(), binary()} | {error, term()}.
+    {ok, integer(), resp_headers(), binary()} | {error, term()}.
 post(Url, Body, Auth, Timeout, ExtraHeaders) ->
     Headers = headers(Auth, ExtraHeaders),
     ContentType = "application/json",
     Request = {Url, Headers, ContentType, Body},
     case httpc:request(post, Request, [{timeout, Timeout}], [{body_format, binary}]) of
-        {ok, {{_, StatusCode, _}, _RespHeaders, RespBody}} ->
-            {ok, StatusCode, RespBody};
+        {ok, {{_, StatusCode, _}, RespHeaders, RespBody}} ->
+            {ok, StatusCode, RespHeaders, RespBody};
         {error, Reason} ->
             {error, Reason}
+    end.
+
+-spec post_stream(Url :: string(), Body :: binary(), Auth :: term(),
+                  Timeout :: pos_integer(), ExtraHeaders :: extra_headers()) ->
+    {ok, reference()} | {error, term()}.
+post_stream(Url, Body, Auth, Timeout, ExtraHeaders) ->
+    H = headers(Auth, ExtraHeaders),
+    ContentType = "application/json",
+    Request = {Url, H, ContentType, Body},
+    case httpc:request(post, Request, [{timeout, Timeout}],
+                       [{sync, false}, {stream, self}]) of
+        {ok, RequestId} -> {ok, RequestId};
+        {error, Reason} -> {error, Reason}
     end.
 
 -spec headers(Auth :: term()) -> [{string(), string()}].
@@ -54,6 +71,30 @@ headers(Auth) ->
 headers(Auth, ExtraHeaders) when is_list(ExtraHeaders) ->
     Base = auth_headers(Auth),
     merge_headers(Base, ExtraHeaders).
+
+%% Parsing of Retry-After header values. Handles common cases, and
+%% returns undefined for junk returns. Actual date parsing happens
+%% as part of backoff calculations.
+-spec parse_retry_after(resp_headers()) -> pos_integer() | undefined.
+parse_retry_after(Headers) ->
+    case find_header("retry-after", Headers) of
+        undefined -> undefined;
+        Value ->
+            Trimmed = string:trim(Value),
+            try list_to_integer(Trimmed) of
+                N when N > 0 -> N;
+                _ -> undefined
+            catch
+                error:badarg -> undefined
+            end
+    end.
+
+find_header(_Name, []) -> undefined;
+find_header(Name, [{Key, Value} | Rest]) ->
+    case string:to_lower(Key) =:= Name of
+        true -> Value;
+        false -> find_header(Name, Rest)
+    end.
 
 auth_headers({ok, ApiKey}) ->
     [{"Authorization", "Bearer " ++ binary_to_list(ApiKey)},

@@ -45,9 +45,14 @@ error_in_body_test() ->
 
 missing_data_field_test() ->
     {ok, Json} = openrouter_json:encode(#{<<"models">> => []}),
-    ?assertEqual({error, {parse_error, missing_data_field}},
+    ?assertMatch({error, {unexpected_response, _}},
                  openrouter_models:parse_response(Json)).
 
 invalid_json_test() ->
-    ?assertMatch({error, {parse_error, _}},
+    ?assertMatch({error, {parse_error, #{raw_body := _}}},
                  openrouter_models:parse_response(<<"not json">>)).
+
+html_error_page_test() ->
+    Html = <<"<html><body>503 Service Unavailable</body></html>">>,
+    {error, {parse_error, #{raw_body := RawBody}}} = openrouter_models:parse_response(Html),
+    ?assertEqual(Html, RawBody).

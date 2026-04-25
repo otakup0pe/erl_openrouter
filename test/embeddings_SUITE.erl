@@ -43,6 +43,8 @@ init_per_testcase(embedding_server_error_retries, Config) ->
     ok = mock_openrouter:start(),
     Port = mock_openrouter:port(),
     BaseUrl = "http://localhost:" ++ integer_to_list(Port) ++ "/api/v1",
+    application:set_env(erl_openrouter, embedding_model,
+                        <<"openai/text-embedding-3-small">>),
     {ok, Pid} = openrouter_client:start_link(#{
         base_url => BaseUrl,
         auth_callback => fun() -> {ok, <<"sk-test-key">>} end,
@@ -56,6 +58,8 @@ init_per_testcase(_TC, Config) ->
     ok = mock_openrouter:start(),
     Port = mock_openrouter:port(),
     BaseUrl = "http://localhost:" ++ integer_to_list(Port) ++ "/api/v1",
+    application:set_env(erl_openrouter, embedding_model,
+                        <<"openai/text-embedding-3-small">>),
     {ok, Pid} = openrouter_client:start_link(#{
         base_url => BaseUrl,
         auth_callback => fun() -> {ok, <<"sk-test-key">>} end,
@@ -67,6 +71,7 @@ init_per_testcase(_TC, Config) ->
 end_per_testcase(_TC, Config) ->
     Pid = proplists:get_value(client_pid, Config),
     gen_server:stop(Pid),
+    application:unset_env(erl_openrouter, embedding_model),
     mock_openrouter:stop().
 
 %% Helpers

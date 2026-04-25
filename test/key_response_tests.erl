@@ -41,5 +41,15 @@ error_in_body_test() ->
     ?assertEqual(<<"Invalid API key">>, Error#api_error.message).
 
 invalid_json_test() ->
-    ?assertMatch({error, {parse_error, _}},
+    ?assertMatch({error, {parse_error, #{raw_body := _}}},
                  openrouter_key:parse_response(<<"not json">>)).
+
+unexpected_json_shape_test() ->
+    {ok, Json} = openrouter_json:encode(#{<<"something">> => <<"else">>}),
+    ?assertMatch({error, {unexpected_response, _}},
+                 openrouter_key:parse_response(Json)).
+
+html_error_page_test() ->
+    Html = <<"<html><body>502 Bad Gateway</body></html>">>,
+    {error, {parse_error, #{raw_body := RawBody}}} = openrouter_key:parse_response(Html),
+    ?assertEqual(Html, RawBody).

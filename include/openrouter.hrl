@@ -28,25 +28,6 @@
     tool_call_id :: binary() | undefined
 }).
 
--record(chat_request, {
-    messages :: [map()],
-    model :: binary() | undefined,
-    temperature :: float() | undefined,
-    top_p :: float() | undefined,
-    top_k :: integer() | undefined,
-    frequency_penalty :: float() | undefined,
-    presence_penalty :: float() | undefined,
-    repetition_penalty :: float() | undefined,
-    min_p :: float() | undefined,
-    top_a :: float() | undefined,
-    seed :: integer() | undefined,
-    max_tokens :: integer() | undefined,
-    stop :: [binary()] | undefined,
-    response_format :: map() | undefined,
-    tools = [] :: [#tool{}] | [map()] | undefined,
-    tool_choice :: undefined | auto | none | {function, binary()} | binary() | map()
-}).
-
 -record(chat_response, {
     id :: binary(),
     model :: binary(),
@@ -64,7 +45,7 @@
 -record(api_error, {
     type :: auth_error | rate_limited | insufficient_credits
           | forbidden | server_error | timeout | connect_failed | parse_error
-          | malformed_response,
+          | malformed_response | worker_crashed | overloaded | circuit_open,
     code :: integer() | undefined,
     message :: binary(),
     metadata :: map()

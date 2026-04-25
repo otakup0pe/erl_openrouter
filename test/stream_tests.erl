@@ -116,13 +116,19 @@ tool_call_and_content_interleaved_test() ->
     [TC] = openrouter_stream:tool_calls(Final),
     ?assertEqual(<<"c1">>, TC#tool_call.id).
 
-malformed_json_silently_dropped_test() ->
+malformed_json_emits_parse_error_test() ->
     S0 = openrouter_stream:new(),
     Chunk = <<"data: {not json}\n\n",
               "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n">>,
     {Events, S1} = openrouter_stream:feed(Chunk, S0),
-    ?assertEqual([{content, <<"ok">>}], Events),
+    ?assertEqual([{parse_error, <<"{not json}">>}, {content, <<"ok">>}], Events),
     ?assertEqual(<<"ok">>, openrouter_stream:content(S1)).
+
+non_map_json_emits_parse_error_test() ->
+    S0 = openrouter_stream:new(),
+    Chunk = <<"data: [1,2,3]\n\n">>,
+    {Events, _S1} = openrouter_stream:feed(Chunk, S0),
+    ?assertEqual([{parse_error, <<"[1,2,3]">>}], Events).
 
 crlf_line_endings_test() ->
     %% SSE traditionally uses \r\n; ensure we strip CR.

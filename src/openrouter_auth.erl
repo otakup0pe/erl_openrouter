@@ -1,4 +1,16 @@
 -module(openrouter_auth).
+%% @doc API key resolution with cascading fallback.
+%%
+%% Resolution order:
+%% <ol>
+%%   <li>`auth_callback' function in Opts (if present, called with arity 0)</li>
+%%   <li>`api_key' in application env (`erl_openrouter')</li>
+%%   <li>`OPENROUTER_API_KEY' OS environment variable</li>
+%% </ol>
+%%
+%% Returns `{ok, Key}' on success or `{error, no_api_key}' if all
+%% sources are exhausted. Per-request Opts can override the
+%% application-level key by including `auth_callback'.
 
 -export([resolve/1]).
 

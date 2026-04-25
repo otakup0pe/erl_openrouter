@@ -1,4 +1,6 @@
 -module(openrouter_chat).
+%% @private
+%% Internal module -- use {@link openrouter} for the public API.
 
 -include("openrouter.hrl").
 
@@ -22,7 +24,7 @@ build_request(Messages, Opts) ->
     WithMax = maybe_set(<<"max_tokens">>, max_tokens, Opts, WithSeed),
     WithStop = maybe_set(<<"stop">>, stop, Opts, WithMax),
     WithFmt = maybe_set(<<"response_format">>, response_format, Opts, WithStop),
-    WithStream = maybe_set(<<"stream">>, stream, Opts, WithFmt),
+    WithStream = guard_stream_opt(maybe_set(<<"stream">>, stream, Opts, WithFmt)),
     WithTools = maybe_add_tools(Opts, WithStream),
     WithChoice = maybe_add_tool_choice(Opts, WithTools),
     {ok, Json} = openrouter_json:encode(WithChoice),
@@ -100,12 +102,14 @@ normalize_message_content(Msg) ->
             %% Content blocks format from extended thinking models.
             %% Extract the text block(s), concatenate if multiple.
             extract_text_from_blocks(Blocks);
-        _ ->
+        null ->
             %% null or missing -- check reasoning_content fallback
             %% (some providers surface response text here for thinking models)
             case maps:get(<<"reasoning_content">>, Msg, undefined) of
                 RC when is_binary(RC), RC =/= <<>> -> RC;
-                _ -> null
+                undefined -> null;
+                null -> null;
+                <<>> -> null
             end
     end.
 
@@ -119,11 +123,14 @@ extract_text_from_blocks(Blocks) ->
         Multiple -> iolist_to_binary(lists:join(<<"\n">>, Multiple))
     end.
 
+guard_stream_opt(#{<<"stream">> := true}) ->
+    erlang:error({stream_not_supported,
+                  <<"Streaming requires openrouter:chat_stream/2, not openrouter:chat/2">>});
+guard_stream_opt(Map) ->
+    Map.
+
 maybe_set(JsonKey, OptKey, Opts, Map) ->
-    case maps:get(OptKey, Opts, undefined) of
-        undefined -> Map;
-        Value -> Map#{JsonKey => Value}
-    end.
+    openrouter_json:maybe_set(JsonKey, OptKey, Opts, Map).
 
 maybe_add_tools(Opts, Map) ->
     case maps:get(tools, Opts, undefined) of

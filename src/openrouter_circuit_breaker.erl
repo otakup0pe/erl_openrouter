@@ -1,7 +1,30 @@
 -module(openrouter_circuit_breaker).
+%% @private
+
+%% @doc Circuit breaker for upstream API calls.
+%%
+%% Tracks consecutive failures and trips open when a threshold is reached,
+%% preventing further requests until a cooldown period expires.
+%%
+%% States:
+%% <ul>
+%%   <li>`closed' -- normal operation; requests are allowed.</li>
+%%   <li>`open' -- tripped after `failure_threshold' consecutive failures;
+%%       all requests are rejected with `{error, circuit_open}'.</li>
+%%   <li>`half_open' -- entered after `reset_timeout' ms in the open state;
+%%       one probe request is allowed. A success returns to closed; a
+%%       failure re-opens the circuit.</li>
+%% </ul>
+%%
+%% Defaults (overridable via the opts map passed to {@link start_link/1}):
+%% <ul>
+%%   <li>`failure_threshold' -- 5</li>
+%%   <li>`reset_timeout' -- 30000 ms</li>
+%% </ul>
+
 -behaviour(gen_server).
 
--export([start_link/1]).
+-export([start_link/1, start_link/2]).
 -export([allow/1, state/1, record_success/1, record_failure/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
 
@@ -15,6 +38,9 @@
 
 start_link(Opts) ->
     gen_server:start_link(?MODULE, Opts, []).
+
+start_link(Name, Opts) ->
+    gen_server:start_link({local, Name}, ?MODULE, Opts, []).
 
 -spec allow(pid()) -> ok | {error, circuit_open}.
 allow(Pid) ->
@@ -59,6 +85,9 @@ handle_call(Request, _From, State) ->
     {reply, {error, unknown}, State}.
 
 handle_cast(success, #state{cb_state = half_open} = State) ->
+    openrouter_telemetry:event(
+        [erl_openrouter, circuit_breaker, state_change],
+        #{}, #{from => half_open, to => closed}),
     {noreply, State#state{cb_state = closed, failure_count = 0, timer_ref = undefined}};
 handle_cast(success, #state{cb_state = closed} = State) ->
     {noreply, State#state{failure_count = 0}};
@@ -67,6 +96,10 @@ handle_cast(success, State) ->
 
 handle_cast(failure, #state{cb_state = half_open, reset_timeout = RT} = State) ->
     %% Half-open failure reopens the circuit
+    openrouter_telemetry:event(
+        [erl_openrouter, circuit_breaker, state_change],
+        #{}, #{from => half_open, to => open}),
+    cancel_timer(State#state.timer_ref),
     TimerRef = erlang:send_after(RT, self(), reset_timeout),
     {noreply, State#state{cb_state = open, timer_ref = TimerRef}};
 handle_cast(failure, #state{cb_state = closed, failure_count = FC,
@@ -74,6 +107,10 @@ handle_cast(failure, #state{cb_state = closed, failure_count = FC,
     NewCount = FC + 1,
     case NewCount >= FT of
         true ->
+            openrouter_telemetry:event(
+                [erl_openrouter, circuit_breaker, state_change],
+                #{}, #{from => closed, to => open}),
+            cancel_timer(State#state.timer_ref),
             TimerRef = erlang:send_after(RT, self(), reset_timeout),
             {noreply, State#state{cb_state = open, failure_count = NewCount, timer_ref = TimerRef}};
         false ->
@@ -87,8 +124,20 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(reset_timeout, #state{cb_state = open} = State) ->
+    openrouter_telemetry:event(
+        [erl_openrouter, circuit_breaker, state_change],
+        #{}, #{from => open, to => half_open}),
     {noreply, State#state{cb_state = half_open, timer_ref = undefined}};
+handle_info(reset_timeout, State) ->
+    %% Stray timer from a previous cycle; already transitioned. Ignore.
+    {noreply, State};
 handle_info(Info, State) ->
     logger:warning("openrouter_circuit_breaker: unexpected info ~p",
                    [Info]),
     {noreply, State}.
+
+cancel_timer(undefined) -> ok;
+cancel_timer(Ref) ->
+    erlang:cancel_timer(Ref),
+    %% Flush any already-delivered message
+    receive reset_timeout -> ok after 0 -> ok end.
