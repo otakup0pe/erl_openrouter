@@ -17,7 +17,7 @@ Add to `rebar.config`:
 
 ```erlang
 {deps, [
-    {erl_openrouter, {git, "https://github.com/otakup0pe/erl_openrouter.git", {tag, "0.1.0"}}}
+    {erl_openrouter, {git, "https://github.com/otakup0pe/erl_openrouter.git", {tag, "0.1.1"}}}
 ]}.
 ```
 

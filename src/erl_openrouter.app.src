@@ -1,6 +1,6 @@
 {application, erl_openrouter, [
     {description, "Erlang client for the OpenRouter API"},
-    {vsn, "0.1.0"},
+    {vsn, "0.1.1"},
     {registered, [openrouter_sup, openrouter_client,
                   openrouter_rate_limiter, openrouter_circuit_breaker]},
     {mod, {openrouter_app, []}},
