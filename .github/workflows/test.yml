@@ -69,4 +69,4 @@ jobs:
         if: steps.bump_check.outputs.part != ''
         run: |
           pip install avakas
-          avakas bump . ${{ steps.bump_check.outputs.part }} --flavor git
+          avakas bump . ${{ steps.bump_check.outputs.part }} --flavor git-native
