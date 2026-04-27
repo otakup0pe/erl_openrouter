@@ -33,13 +33,15 @@
     model :: binary(),
     choices :: [map()],
     usage :: map(),
-    cost :: float() | undefined
+    cost :: float() | undefined,
+    request_id :: binary() | undefined
 }).
 
 -record(embedding_response, {
     model :: binary(),
     data :: [#{index := non_neg_integer(), embedding := [float()]}],
-    usage :: map()
+    usage :: map(),
+    request_id :: binary() | undefined
 }).
 
 -record(api_error, {
@@ -48,7 +50,7 @@
           | malformed_response | worker_crashed | overloaded | circuit_open,
     code :: integer() | undefined,
     message :: binary(),
-    metadata :: map()
+    metadata = #{} :: map()
 }).
 
 -endif.

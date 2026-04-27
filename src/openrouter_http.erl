@@ -5,6 +5,7 @@
 -export([get/3, get/4, post/4, post/5, post_stream/5]).
 -export([headers/1, headers/2]).
 -export([parse_retry_after/1]).
+-export([find_request_id/1]).
 
 -type extra_header() :: {string(), string()}.
 -type extra_headers() :: [extra_header()].
@@ -87,6 +88,14 @@ parse_retry_after(Headers) ->
             catch
                 error:badarg -> undefined
             end
+    end.
+
+-spec find_request_id(resp_headers()) -> binary() | undefined.
+find_request_id(Headers) ->
+    case find_header("x-request-id", Headers) of
+        undefined -> undefined;
+        Value when is_list(Value) -> list_to_binary(Value);
+        Value when is_binary(Value) -> Value
     end.
 
 find_header(_Name, []) -> undefined;

@@ -453,16 +453,23 @@ check_rate_limiter(RL) ->
                 <<"Local rate limiter exhausted">>)}
     end.
 
-classify_http_result({ok, 200, _Headers, Body}, ParseFun, Config) ->
+classify_http_result({ok, 200, Headers, Body}, ParseFun, Config) ->
     record_cb_success(Config#call_config.circuit_breaker),
-    ParseFun(Body);
+    RequestId = openrouter_http:find_request_id(Headers),
+    inject_request_id(ParseFun(Body), RequestId);
 classify_http_result({ok, StatusCode, Headers, Body}, _ParseFun, Config)
   when StatusCode =:= 429; StatusCode >= 500 ->
     record_cb_failure(Config#call_config.circuit_breaker),
     RetryAfter = openrouter_http:parse_retry_after(Headers),
-    {retry, openrouter_error:classify(StatusCode, Body), RetryAfter};
-classify_http_result({ok, StatusCode, _Headers, Body}, _ParseFun, _Config) ->
-    {error, openrouter_error:classify(StatusCode, Body)};
+    RequestId = openrouter_http:find_request_id(Headers),
+    Error = inject_request_id_into_error(
+                openrouter_error:classify(StatusCode, Body), RequestId),
+    {retry, Error, RetryAfter};
+classify_http_result({ok, StatusCode, Headers, Body}, _ParseFun, _Config) ->
+    RequestId = openrouter_http:find_request_id(Headers),
+    Error = inject_request_id_into_error(
+                openrouter_error:classify(StatusCode, Body), RequestId),
+    {error, Error};
 classify_http_result({error, Reason}, _ParseFun, Config) ->
     record_cb_failure(Config#call_config.circuit_breaker),
     {error, openrouter_error:classify(Reason)}.
@@ -535,3 +542,21 @@ record_usage(Model, {ok, #embedding_response{usage = Usage}}) ->
     openrouter_usage:record(Model, Usage);
 record_usage(_, _) ->
     ok.
+
+inject_request_id({ok, #chat_response{id = BodyId} = R}, RequestId) ->
+    Id = coalesce_request_id(RequestId, BodyId),
+    {ok, R#chat_response{request_id = Id}};
+inject_request_id({ok, #embedding_response{} = R}, RequestId) ->
+    {ok, R#embedding_response{request_id = RequestId}};
+inject_request_id({error, #api_error{} = E}, RequestId) ->
+    {error, inject_request_id_into_error(E, RequestId)};
+inject_request_id(Other, _RequestId) ->
+    Other.
+
+inject_request_id_into_error(#api_error{metadata = Meta} = E, undefined) when is_map(Meta) ->
+    E;
+inject_request_id_into_error(#api_error{metadata = Meta} = E, RequestId) when is_map(Meta) ->
+    E#api_error{metadata = Meta#{request_id => RequestId}}.
+
+coalesce_request_id(undefined, BodyId) when is_binary(BodyId) -> BodyId;
+coalesce_request_id(HeaderId, _) when is_binary(HeaderId) -> HeaderId.
