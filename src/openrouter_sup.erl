@@ -37,6 +37,12 @@ init([]) ->
             type => worker
         },
         #{
+            id => openrouter_circuit_breaker_sup,
+            start => {openrouter_circuit_breaker_sup, start_link, []},
+            restart => permanent,
+            type => supervisor
+        },
+        #{
             id => openrouter_usage,
             start => {openrouter_usage, start_link, []},
             restart => permanent,

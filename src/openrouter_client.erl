@@ -309,6 +309,7 @@ check_auth(_) ->
     ok.
 
 build_call_config(Opts, #state{} = State) ->
+    Model = maps:get(model, Opts, undefined),
     #call_config{
         auth = resolve_request_auth(Opts, State#state.auth),
         base_url = resolve_request_url(Opts, State#state.base_url),
@@ -318,13 +319,21 @@ build_call_config(Opts, #state{} = State) ->
         backoff_max = State#state.backoff_max,
         extra_headers = resolve_extra_headers(Opts, State#state.extra_headers),
         rate_limiter = resolve_named_process(openrouter_rate_limiter),
-        circuit_breaker = resolve_named_process(openrouter_circuit_breaker)
+        circuit_breaker = resolve_circuit_breaker(Model)
     }.
 
 resolve_named_process(Name) ->
     case whereis(Name) of
         undefined -> undefined;
         _Pid -> Name
+    end.
+
+resolve_circuit_breaker(Model) ->
+    case whereis(openrouter_circuit_breaker_sup) of
+        undefined ->
+            resolve_named_process(openrouter_circuit_breaker);
+        _Pid ->
+            openrouter_circuit_breaker_sup:ensure(Model)
     end.
 
 resolve_extra_headers(Opts, Default) when is_map(Opts) ->
@@ -334,11 +343,9 @@ resolve_extra_headers(Opts, Default) when is_map(Opts) ->
         Bad ->
             logger:warning("extra_headers must be a list, got: ~p", [Bad]),
             Default
-    end;
-resolve_extra_headers(_, Default) -> Default.
+    end.
 
 resolve_request_auth(Opts, DefaultAuth) when is_map(Opts) ->
-    %% Support overriding of auth on a per-request basis.
     case maps:is_key(auth_callback, Opts) of
         true ->
             case openrouter_auth:resolve(Opts) of
@@ -347,19 +354,13 @@ resolve_request_auth(Opts, DefaultAuth) when is_map(Opts) ->
             end;
         false ->
             DefaultAuth
-    end;
-resolve_request_auth(_, DefaultAuth) ->
-    DefaultAuth.
+    end.
 
 resolve_request_url(Opts, DefaultUrl) when is_map(Opts) ->
-    maps:get(base_url, Opts, DefaultUrl);
-resolve_request_url(_, DefaultUrl) ->
-    DefaultUrl.
+    maps:get(base_url, Opts, DefaultUrl).
 
 resolve_request_timeout(Opts, DefaultTimeout) when is_map(Opts) ->
-    maps:get(timeout, Opts, DefaultTimeout);
-resolve_request_timeout(_, DefaultTimeout) ->
-    DefaultTimeout.
+    maps:get(timeout, Opts, DefaultTimeout).
 
 spawn_post(From, Op, Url, Request, Config, ParseFun, State) ->
     {_Pid, MonRef} = spawn_monitor(fun() ->
