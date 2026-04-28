@@ -369,9 +369,9 @@ spawn_post(From, Op, Url, Request, Config, ParseFun, State) ->
             [erl_openrouter, request],
             Meta,
             fun() ->
-                Res = do_post_with_retry(Url, Request, Config, ParseFun),
+                {Res, Attempts} = do_post_with_retry(Url, Request, Config, ParseFun),
                 StopMeta = maps:merge(Meta, result_measurements(Res)),
-                {Res, StopMeta}
+                {Res, StopMeta#{attempts => Attempts}}
             end),
         record_usage(Model, Result),
         gen_server:reply(From, Result)
@@ -385,9 +385,9 @@ spawn_get(From, Op, Url, Config, ParseFun, State) ->
             [erl_openrouter, request],
             Meta,
             fun() ->
-                Res = do_get_with_retry(Url, Config, ParseFun),
+                {Res, Attempts} = do_get_with_retry(Url, Config, ParseFun),
                 StopMeta = maps:merge(Meta, result_measurements(Res)),
-                {Res, StopMeta}
+                {Res, StopMeta#{attempts => Attempts}}
             end),
         gen_server:reply(From, Result)
     end),
@@ -400,29 +400,31 @@ track_worker(From, Op, MonRef, State) ->
 do_post_with_retry(Url, Request, Config, ParseFun) ->
     case pre_flight_checks(Config) of
         ok ->
-            with_retry(fun() ->
+            {Res, Attempts} = with_retry(fun() ->
                 Result = openrouter_http:post(Url, Request,
                                               Config#call_config.auth,
                                               Config#call_config.timeout,
                                               Config#call_config.extra_headers),
                 classify_http_result(Result, ParseFun, Config)
-            end, Config);
+            end, Config),
+            {Res, Attempts};
         {error, _} = Err ->
-            Err
+            {Err, 0}
     end.
 
 do_get_with_retry(Url, Config, ParseFun) ->
     case pre_flight_checks(Config) of
         ok ->
-            with_retry(fun() ->
+            {Res, Attempts} = with_retry(fun() ->
                 Result = openrouter_http:get(Url,
                                              Config#call_config.auth,
                                              Config#call_config.timeout,
                                              Config#call_config.extra_headers),
                 classify_http_result(Result, ParseFun, Config)
-            end, Config);
+            end, Config),
+            {Res, Attempts};
         {error, _} = Err ->
-            Err
+            {Err, 0}
     end.
 
 pre_flight_checks(#call_config{circuit_breaker = CB, rate_limiter = RL}) ->
@@ -506,12 +508,12 @@ with_retry(Fun, Attempt, #call_config{max_retries = MaxRetries} = Config) ->
                 ok ->
                     with_retry(Fun, Attempt + 1, Config);
                 {error, _} = Err ->
-                    Err
+                    {Err, Attempt + 1}
             end;
         {retry, LastError, _} ->
-            {error, LastError};
+            {{error, LastError}, Attempt + 1};
         Other ->
-            Other
+            {Other, Attempt + 1}
     end.
 
 extract_model(RequestBinary) when is_binary(RequestBinary) ->
