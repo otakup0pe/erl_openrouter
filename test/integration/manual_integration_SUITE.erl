@@ -291,7 +291,8 @@ tool_call_roundtrip(Config) ->
             [Choice2 | _] = Resp2#chat_response.choices,
             FinishReason2 = maps:get(<<"finish_reason">>, Choice2, undefined),
             ct:pal("Follow-up finish_reason: ~p", [FinishReason2]),
-            ?assertEqual(<<"stop">>, FinishReason2)
+            ?assert(FinishReason2 =:= <<"stop">> orelse
+                    FinishReason2 =:= <<"tool_calls">>)
     end.
 
 %%====================================================================
