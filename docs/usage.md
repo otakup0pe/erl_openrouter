@@ -109,6 +109,8 @@ If the optional `telemetry` dependency is included, erl_openrouter emits events 
 
 Start/stop/exception events are emitted via `telemetry:span/3`. Error metadata fields (`error_type`, `status_code`, token counts) are only present when applicable.
 
+The `operation` metadata defaults to `chat` for chat requests and `embeddings` for embedding requests. Callers can override this by passing `operation => my_op` in the opts map to `openrouter:chat/2`, allowing per-call telemetry classification.
+
 ### Example Handler
 
 ```erlang

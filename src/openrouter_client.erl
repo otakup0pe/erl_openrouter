@@ -116,7 +116,8 @@ handle_call({chat, Messages, Opts}, From, State) ->
                     Url = Config#call_config.base_url ++ "/chat/completions",
                     try openrouter_chat:build_request(Messages, Opts) of
                         Request ->
-                            NewState = spawn_post(From, chat, Url, Request, Config,
+                            Op = maps:get(operation, Opts, chat),
+                            NewState = spawn_post(From, Op, Url, Request, Config,
                                                   fun openrouter_chat:parse_response/1, State),
                             {noreply, NewState}
                     catch
