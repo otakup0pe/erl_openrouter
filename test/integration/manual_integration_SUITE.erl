@@ -6,12 +6,13 @@
 %% variable is absent every group returns {skip, ...} so the suite
 %% is safe to include in CI without credentials.
 %%
-%% Discovers a free model at runtime via models/0 so tests don't
-%% break when free model IDs rotate on OpenRouter.
+%% Uses a hardcoded known-cheap model for reliability.
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("openrouter.hrl").
+
+-define(TEST_MODEL, <<"meta-llama/llama-3.1-8b-instruct">>).
 
 -export([
     all/0,
@@ -83,10 +84,8 @@ init_per_suite(Config) ->
             ok = application:ensure_started(public_key),
             ok = application:ensure_started(ssl),
             {ok, _} = application:ensure_all_started(erl_openrouter),
-            %% Discover a free model at runtime
-            FreeModel = discover_free_model(),
-            ct:pal("Using free model: ~s", [FreeModel]),
-            [{free_model, FreeModel} | Config]
+            ct:pal("Using free model: ~s", [?TEST_MODEL]),
+            [{test_model, ?TEST_MODEL} | Config]
     end.
 
 end_per_suite(_Config) ->
@@ -158,7 +157,7 @@ end_per_testcase(_TC, _Config) ->
 %%====================================================================
 
 chat_basic(Config) ->
-    Model = proplists:get_value(free_model, Config),
+    Model = proplists:get_value(test_model, Config),
     Messages = [#{<<"role">> => <<"user">>,
                   <<"content">> => <<"Say hello in one word.">>}],
     Opts = #{model => Model, max_tokens => ?MAX_TOKENS},
@@ -171,7 +170,7 @@ chat_basic(Config) ->
     ?assert(is_binary(Content) andalso byte_size(Content) > 0).
 
 chat_with_model(Config) ->
-    Model = proplists:get_value(free_model, Config),
+    Model = proplists:get_value(test_model, Config),
     Messages = [#{<<"role">> => <<"user">>,
                   <<"content">> => <<"Reply with the word OK.">>}],
     Opts = #{model => Model, max_tokens => ?MAX_TOKENS},
@@ -245,7 +244,7 @@ invalid_model(_Config) ->
 %%====================================================================
 
 tool_call_roundtrip(Config) ->
-    Model = proplists:get_value(free_model, Config),
+    Model = proplists:get_value(test_model, Config),
     WeatherTool = #{
         <<"type">> => <<"function">>,
         <<"function">> => #{
@@ -300,7 +299,7 @@ tool_call_roundtrip(Config) ->
 %%====================================================================
 
 local_rate_limit(Config) ->
-    Model = proplists:get_value(free_model, Config),
+    Model = proplists:get_value(test_model, Config),
     Messages = [#{<<"role">> => <<"user">>,
                   <<"content">> => <<"Say hi.">>}],
     Opts = #{model => Model, max_tokens => ?MAX_TOKENS},
@@ -316,7 +315,7 @@ local_rate_limit(Config) ->
 %%====================================================================
 
 concurrent_requests(Config) ->
-    Model = proplists:get_value(free_model, Config),
+    Model = proplists:get_value(test_model, Config),
     Messages = [#{<<"role">> => <<"user">>,
                   <<"content">> => <<"Reply OK.">>}],
     Opts = #{model => Model, max_tokens => ?MAX_TOKENS},
@@ -339,31 +338,6 @@ concurrent_requests(Config) ->
 %%====================================================================
 %% Internal helpers
 %%====================================================================
-
-discover_free_model() ->
-    {ok, Models} = openrouter:models(),
-    FreeModels = [maps:get(<<"id">>, M)
-                  || M <- Models,
-                     is_free_model(M)],
-    case FreeModels of
-        [] ->
-            ct:pal("No free models found, using fallback"),
-            <<"meta-llama/llama-3.2-1b-instruct:free">>;
-        [First | _] ->
-            First
-    end.
-
-is_free_model(Model) ->
-    Id = maps:get(<<"id">>, Model, <<>>),
-    Pricing = maps:get(<<"pricing">>, Model, #{}),
-    %% Free models either have :free suffix or zero pricing
-    case binary:match(Id, <<":free">>) of
-        nomatch ->
-            PromptCost = maps:get(<<"prompt">>, Pricing, <<"1">>),
-            PromptCost =:= <<"0">>;
-        _ ->
-            true
-    end.
 
 restore_default_client() ->
     %% Ensure any leftover registered process is gone
