@@ -311,6 +311,7 @@ check_auth(_) ->
 
 build_call_config(Opts, #state{} = State) ->
     Model = maps:get(model, Opts, undefined),
+    Op = maps:get(operation, Opts, undefined),
     #call_config{
         auth = resolve_request_auth(Opts, State#state.auth),
         base_url = resolve_request_url(Opts, State#state.base_url),
@@ -320,7 +321,7 @@ build_call_config(Opts, #state{} = State) ->
         backoff_max = State#state.backoff_max,
         extra_headers = resolve_extra_headers(Opts, State#state.extra_headers),
         rate_limiter = resolve_named_process(openrouter_rate_limiter),
-        circuit_breaker = resolve_circuit_breaker(Model)
+        circuit_breaker = resolve_circuit_breaker(Model, Op)
     }.
 
 resolve_named_process(Name) ->
@@ -329,12 +330,12 @@ resolve_named_process(Name) ->
         _Pid -> Name
     end.
 
-resolve_circuit_breaker(Model) ->
+resolve_circuit_breaker(Model, Op) ->
     case whereis(openrouter_circuit_breaker_sup) of
         undefined ->
             resolve_named_process(openrouter_circuit_breaker);
         _Pid ->
-            openrouter_circuit_breaker_sup:ensure(Model)
+            openrouter_circuit_breaker_sup:ensure(Model, Op)
     end.
 
 resolve_extra_headers(Opts, Default) when is_map(Opts) ->

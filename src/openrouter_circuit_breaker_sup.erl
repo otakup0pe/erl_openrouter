@@ -2,8 +2,12 @@
 %% @private
 -behaviour(supervisor).
 
--export([start_link/0, ensure/1]).
+-export([start_link/0, ensure/1, ensure/2]).
 -export([init/1]).
+
+-ifdef(TEST).
+-export([breaker_opts/2]).
+-endif.
 
 -define(TAB, openrouter_circuit_breaker_registry).
 
@@ -25,22 +29,29 @@ init([]) ->
     },
     {ok, {SupFlags, [ChildSpec]}}.
 
--spec ensure(binary() | undefined) -> pid() | atom() | undefined.
-ensure(Model) when is_binary(Model) ->
-    case lookup(Model) of
+-type breaker_ref() :: pid() | openrouter_circuit_breaker | undefined.
+
+-spec ensure(binary() | undefined) -> breaker_ref().
+ensure(Model) ->
+    ensure(Model, undefined).
+
+-spec ensure(binary() | undefined, atom() | undefined) -> breaker_ref().
+ensure(Model, Op) when is_binary(Model) ->
+    Key = {Model, Op},
+    case lookup(Key) of
         {ok, Pid} -> Pid;
-        not_found -> start_breaker(Model)
+        not_found -> start_breaker(Key)
     end;
-ensure(_) ->
+ensure(_, _) ->
     resolve_global().
 
-lookup(Model) ->
-    try ets:lookup(?TAB, Model) of
-        [{Model, Pid}] when is_pid(Pid) ->
+lookup(Key) ->
+    try ets:lookup(?TAB, Key) of
+        [{Key, Pid}] when is_pid(Pid) ->
             case is_process_alive(Pid) of
                 true -> {ok, Pid};
                 false ->
-                    ets:delete(?TAB, Model),
+                    ets:delete(?TAB, Key),
                     not_found
             end;
         _ ->
@@ -49,26 +60,43 @@ lookup(Model) ->
         error:badarg -> not_found
     end.
 
-start_breaker(Model) ->
-    Opts = breaker_opts(Model),
-    case supervisor:start_child(?MODULE, [Opts#{model => Model}]) of
+start_breaker({Model, Op} = Key) ->
+    Opts = breaker_opts(Model, Op),
+    case supervisor:start_child(?MODULE, [Opts#{model => Model, op => Op}]) of
         {ok, Pid} ->
-            ets:insert(?TAB, {Model, Pid}),
+            ets:insert(?TAB, {Key, Pid}),
             Pid;
         {error, _} ->
-            case lookup(Model) of
+            case lookup(Key) of
                 {ok, Pid} -> Pid;
                 not_found -> resolve_global()
             end
     end.
 
-breaker_opts(Model) ->
-    PerModel = application:get_env(erl_openrouter,
-                                   per_model_circuit_breaker_opts, #{}),
+%% @doc Compute breaker opts by layered merge.
+%%
+%% Precedence (later overrides earlier):
+%%   1. `circuit_breaker_opts' (default)
+%%   2. `per_model_circuit_breaker_opts' keyed by model
+%%   3. `per_op_circuit_breaker_opts' keyed by operation
+%%   4. `per_op_circuit_breaker_opts' keyed by `{Model, Operation}'
+%%
+breaker_opts(Model, Op) ->
     Default = application:get_env(erl_openrouter, circuit_breaker_opts,
                                   #{failure_threshold => 5,
                                     reset_timeout => 30000}),
-    maps:get(Model, PerModel, Default).
+    PerModel = application:get_env(erl_openrouter,
+                                   per_model_circuit_breaker_opts, #{}),
+    PerOp = application:get_env(erl_openrouter,
+                                per_op_circuit_breaker_opts, #{}),
+    Layers = [
+        Default,
+        maps:get(Model, PerModel, #{}),
+        maps:get(Op, PerOp, #{}),
+        maps:get({Model, Op}, PerOp, #{})
+    ],
+    Merge = fun(Layer, Acc) -> maps:merge(Acc, Layer) end,
+    lists:foldl(Merge, #{}, Layers).
 
 resolve_global() ->
     case whereis(openrouter_circuit_breaker) of
