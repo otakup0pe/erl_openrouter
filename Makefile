@@ -21,6 +21,7 @@ docker-test: docker-build
 	$(COMPOSE) run --rm test
 
 test-local: test-eunit test-ct test-dialyzer
+	$(REBAR3) cover
 
 test-dialyzer:
 	$(REBAR3) dialyzer
