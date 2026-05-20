@@ -120,18 +120,16 @@ trip_empty_window_does_not_trip_test() ->
 opts_default_only_test() ->
     application:set_env(erl_openrouter, circuit_breaker_opts,
                         #{failure_threshold => 5, reset_timeout => 30000}),
-    application:unset_env(erl_openrouter, per_model_circuit_breaker_opts),
-    application:unset_env(erl_openrouter, per_op_circuit_breaker_opts),
     Opts = openrouter_circuit_breaker_sup:breaker_opts(<<"any">>, any_op),
     ?assertEqual(5, maps:get(failure_threshold, Opts)),
     ?assertEqual(30000, maps:get(reset_timeout, Opts)).
 
 opts_per_model_overrides_default_test() ->
     application:set_env(erl_openrouter, circuit_breaker_opts,
-                        #{failure_threshold => 5, reset_timeout => 30000}),
-    application:set_env(erl_openrouter, per_model_circuit_breaker_opts,
-                        #{<<"hot-model">> => #{failure_threshold => 3}}),
-    application:unset_env(erl_openrouter, per_op_circuit_breaker_opts),
+                        #{failure_threshold => 5, reset_timeout => 30000,
+                          per_model =>
+                              #{<<"hot-model">> =>
+                                    #{failure_threshold => 3}}}),
     Opts = openrouter_circuit_breaker_sup:breaker_opts(<<"hot-model">>,
                                                        any_op),
     %% per_model wins on threshold; default carries reset_timeout
@@ -140,11 +138,13 @@ opts_per_model_overrides_default_test() ->
 
 opts_per_op_overrides_per_model_test() ->
     application:set_env(erl_openrouter, circuit_breaker_opts,
-                        #{failure_threshold => 5, reset_timeout => 30000}),
-    application:set_env(erl_openrouter, per_model_circuit_breaker_opts,
-                        #{<<"hot-model">> => #{failure_threshold => 10}}),
-    application:set_env(erl_openrouter, per_op_circuit_breaker_opts,
-                        #{propose_merge => #{failure_threshold => 2}}),
+                        #{failure_threshold => 5, reset_timeout => 30000,
+                          per_model =>
+                              #{<<"hot-model">> =>
+                                    #{failure_threshold => 10}},
+                          per_op =>
+                              #{propose_merge =>
+                                    #{failure_threshold => 2}}}),
     Opts = openrouter_circuit_breaker_sup:breaker_opts(<<"hot-model">>,
                                                        propose_merge),
     %% per_op (2) wins over per_model (10) and default (5)
@@ -152,12 +152,12 @@ opts_per_op_overrides_per_model_test() ->
 
 opts_per_model_op_overrides_per_op_test() ->
     application:set_env(erl_openrouter, circuit_breaker_opts,
-                        #{failure_threshold => 5}),
-    application:unset_env(erl_openrouter, per_model_circuit_breaker_opts),
-    application:set_env(erl_openrouter, per_op_circuit_breaker_opts,
-                        #{propose_merge => #{failure_threshold => 3},
-                          {<<"sonnet-4-6">>, propose_merge} =>
-                              #{failure_threshold => 1}}),
+                        #{failure_threshold => 5,
+                          per_op =>
+                              #{propose_merge =>
+                                    #{failure_threshold => 3},
+                                {<<"sonnet-4-6">>, propose_merge} =>
+                                    #{failure_threshold => 1}}}),
     Opts = openrouter_circuit_breaker_sup:breaker_opts(<<"sonnet-4-6">>,
                                                        propose_merge),
     %% per_(model, op) (1) wins over per_op (3) and default (5)
@@ -167,13 +167,12 @@ opts_layers_compose_distinct_keys_test() ->
     %% Different layers contribute different keys; merge should
     %% accumulate rather than truncate.
     application:set_env(erl_openrouter, circuit_breaker_opts,
-                        #{failure_threshold => 5, reset_timeout => 30000}),
-    application:set_env(erl_openrouter, per_op_circuit_breaker_opts,
-                        #{propose_merge =>
-                              #{failure_ratio => 0.5,
-                                window_max_ms => 60000,
-                                min_attempts => 4}}),
-    application:unset_env(erl_openrouter, per_model_circuit_breaker_opts),
+                        #{failure_threshold => 5, reset_timeout => 30000,
+                          per_op =>
+                              #{propose_merge =>
+                                    #{failure_ratio => 0.5,
+                                      window_max_ms => 60000,
+                                      min_attempts => 4}}}),
     Opts = openrouter_circuit_breaker_sup:breaker_opts(<<"any">>,
                                                        propose_merge),
     ?assertEqual(5, maps:get(failure_threshold, Opts)),

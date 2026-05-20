@@ -75,20 +75,25 @@ start_breaker({Model, Op} = Key) ->
 
 %% @doc Compute breaker opts by layered merge.
 %%
+%% Reads from a single `circuit_breaker_opts' app env key:
+%%   #{failure_threshold => 5,
+%%     reset_timeout => 30000,
+%%     per_model => #{Model => #{...}},
+%%     per_op => #{Op | {Model, Op} => #{...}}}
+%%
 %% Precedence (later overrides earlier):
-%%   1. `circuit_breaker_opts' (default)
-%%   2. `per_model_circuit_breaker_opts' keyed by model
-%%   3. `per_op_circuit_breaker_opts' keyed by operation
-%%   4. `per_op_circuit_breaker_opts' keyed by `{Model, Operation}'
+%%   1. Top-level defaults (failure_threshold, reset_timeout)
+%%   2. `per_model' keyed by model binary
+%%   3. `per_op' keyed by operation atom
+%%   4. `per_op' keyed by `{Model, Operation}' tuple
 %%
 breaker_opts(Model, Op) ->
-    Default = application:get_env(erl_openrouter, circuit_breaker_opts,
-                                  #{failure_threshold => 5,
-                                    reset_timeout => 30000}),
-    PerModel = application:get_env(erl_openrouter,
-                                   per_model_circuit_breaker_opts, #{}),
-    PerOp = application:get_env(erl_openrouter,
-                                per_op_circuit_breaker_opts, #{}),
+    All = application:get_env(erl_openrouter, circuit_breaker_opts,
+                              #{failure_threshold => 5,
+                                reset_timeout => 30000}),
+    Default = maps:without([per_model, per_op], All),
+    PerModel = maps:get(per_model, All, #{}),
+    PerOp = maps:get(per_op, All, #{}),
     Layers = [
         Default,
         maps:get(Model, PerModel, #{}),

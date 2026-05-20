@@ -158,8 +158,6 @@ end_per_testcase(TC, Config) when
         false -> ok
     end,
     catch ets:delete(openrouter_circuit_breaker_registry),
-    application:unset_env(erl_openrouter, per_model_circuit_breaker_opts),
-    application:unset_env(erl_openrouter, per_op_circuit_breaker_opts),
     ok;
 end_per_testcase(TC, Config) when
       TC =:= telemetry_includes_model;
@@ -329,12 +327,14 @@ per_model_op_keys_are_distinct(_Config) ->
     ?assertEqual(closed, openrouter_circuit_breaker:state(Pid3)).
 
 per_op_opts_override_per_model(_Config) ->
-    application:set_env(erl_openrouter,
-                        per_model_circuit_breaker_opts,
-                        #{<<"sonnet-4-6">> => #{failure_threshold => 10}}),
-    application:set_env(erl_openrouter,
-                        per_op_circuit_breaker_opts,
-                        #{propose_merge => #{failure_threshold => 2}}),
+    application:set_env(erl_openrouter, circuit_breaker_opts,
+                        #{failure_threshold => 5, reset_timeout => 30000,
+                          per_model =>
+                              #{<<"sonnet-4-6">> =>
+                                    #{failure_threshold => 10}},
+                          per_op =>
+                              #{propose_merge =>
+                                    #{failure_threshold => 2}}}),
     Pid = openrouter_circuit_breaker_sup:ensure(<<"sonnet-4-6">>, propose_merge),
     %% per_op layer wins -- threshold 2, not 10
     openrouter_circuit_breaker:record_failure(Pid),
@@ -342,11 +342,13 @@ per_op_opts_override_per_model(_Config) ->
     ?assertEqual(open, openrouter_circuit_breaker:state(Pid)).
 
 per_model_op_opts_override_per_op(_Config) ->
-    application:set_env(erl_openrouter,
-                        per_op_circuit_breaker_opts,
-                        #{propose_merge => #{failure_threshold => 5},
-                          {<<"sonnet-4-6">>, propose_merge} =>
-                              #{failure_threshold => 2}}),
+    application:set_env(erl_openrouter, circuit_breaker_opts,
+                        #{failure_threshold => 5, reset_timeout => 30000,
+                          per_op =>
+                              #{propose_merge =>
+                                    #{failure_threshold => 5},
+                                {<<"sonnet-4-6">>, propose_merge} =>
+                                    #{failure_threshold => 2}}}),
     Pid = openrouter_circuit_breaker_sup:ensure(<<"sonnet-4-6">>, propose_merge),
     %% Combined-key layer wins -- threshold 2
     openrouter_circuit_breaker:record_failure(Pid),
