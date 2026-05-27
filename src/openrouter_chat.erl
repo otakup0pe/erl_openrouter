@@ -10,7 +10,8 @@
 
 -spec build_request(Messages :: [map()], Opts :: map()) -> binary().
 build_request(Messages, Opts) ->
-    Base = #{<<"messages">> => Messages},
+    SafeMessages = openrouter_text:sanitize_messages(Messages),
+    Base = #{<<"messages">> => SafeMessages},
     WithModel = maybe_set(<<"model">>, model, Opts, Base),
     WithTemp = maybe_set(<<"temperature">>, temperature, Opts, WithModel),
     WithTopP = maybe_set(<<"top_p">>, top_p, Opts, WithTemp),

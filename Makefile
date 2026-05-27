@@ -26,7 +26,7 @@ test-local: test-eunit test-ct test-dialyzer
 test-dialyzer:
 	$(REBAR3) dialyzer
 
-EUNIT_MODULES = backoff_tests,auth_config_tests,circuit_breaker_pure_tests,embedding_request_tests,embedding_response_tests,error_classify_tests,generation_response_tests,http_tests,json_tests,key_response_tests,models_response_tests,rate_limiter_tests,request_build_tests,response_parse_tests,stream_tests,tools_tests,usage_tests
+EUNIT_MODULES = backoff_tests,auth_config_tests,circuit_breaker_pure_tests,embedding_request_tests,embedding_response_tests,error_classify_tests,generation_response_tests,http_tests,json_tests,key_response_tests,models_response_tests,rate_limiter_tests,request_build_tests,response_parse_tests,stream_tests,text_tests,tools_tests,usage_tests
 
 test-eunit:
 	$(REBAR3) eunit --module=$(EUNIT_MODULES)
