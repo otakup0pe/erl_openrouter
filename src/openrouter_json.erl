@@ -7,7 +7,7 @@
 -export([encode/1, decode/1]).
 -export([maybe_set/4]).
 
--spec encode(term()) -> {ok, binary()} | {error, {parse_error, {badarg, term()}}}.
+-spec encode(term()) -> {ok, binary()} | {error, {parse_error, {badarg, term()} | {invalid_byte, integer()}}}.
 encode(Term) ->
     try
         case has_otp_json() of
@@ -18,7 +18,19 @@ encode(Term) ->
         end
     catch
         error:badarg ->
-            {error, {parse_error, {badarg, Term}}}
+            {error, {parse_error, {badarg, Term}}};
+        error:{invalid_byte, Byte} ->
+            %% OTP 27 json:encode throws {invalid_byte, N} for non-UTF-8
+            %% bytes. Sanitize all binaries in the term and retry once.
+            logger:warning("openrouter_json: invalid byte ~B in term, "
+                           "sanitizing and retrying", [Byte]),
+            try
+                Sanitized = sanitize_term(Term),
+                {ok, iolist_to_binary(json:encode(Sanitized))}
+            catch
+                error:{invalid_byte, Byte2} ->
+                    {error, {parse_error, {invalid_byte, Byte2}}}
+            end
     end.
 
 -spec decode(binary()) -> {ok, term()} | {error, {parse_error, term()}}.
@@ -47,6 +59,18 @@ maybe_set(JsonKey, OptKey, Opts, Map) ->
         undefined -> Map;
         Value -> Map#{JsonKey => Value}
     end.
+
+%% Recursively walk a term and sanitize all binaries to valid UTF-8.
+%% Used as a fallback when json:encode hits an invalid byte.
+-spec sanitize_term(term()) -> term().
+sanitize_term(Bin) when is_binary(Bin) ->
+    openrouter_text:ensure_utf8(Bin);
+sanitize_term(Map) when is_map(Map) ->
+    maps:map(fun(_K, V) -> sanitize_term(V) end, Map);
+sanitize_term(List) when is_list(List) ->
+    [sanitize_term(V) || V <- List];
+sanitize_term(Other) ->
+    Other.
 
 -spec has_otp_json() -> boolean().
 has_otp_json() ->
