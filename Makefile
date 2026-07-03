@@ -5,6 +5,8 @@ ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 REBAR3 ?= rebar3
 COMPOSE ?= docker compose -f docker-compose.test.yml
 
+export BUILDX_BUILDER ?= default
+
 all: compile
 
 compile:
