@@ -36,6 +36,21 @@ with_encoding_format_test() ->
     {ok, Decoded} = openrouter_json:decode(Json),
     ?assertEqual(<<"float">>, maps:get(<<"encoding_format">>, Decoded)).
 
+with_provider_test() ->
+    Input = <<"test">>,
+    Provider = #{<<"ignore">> => [<<"deepinfra">>]},
+    Json = openrouter_embeddings:build_request(Input,
+        #{provider => Provider}),
+    {ok, Decoded} = openrouter_json:decode(Json),
+    ?assertEqual(Provider, maps:get(<<"provider">>, Decoded)).
+
+provider_omitted_when_absent_test() ->
+    Input = <<"test">>,
+    Json = openrouter_embeddings:build_request(Input,
+        #{model => <<"test-model">>}),
+    {ok, Decoded} = openrouter_json:decode(Json),
+    ?assertNot(maps:is_key(<<"provider">>, Decoded)).
+
 batch_input_test() ->
     Input = [<<"first">>, <<"second">>, <<"third">>],
     Json = openrouter_embeddings:build_request(Input, #{}),
@@ -60,7 +75,8 @@ all_opts_test() ->
     Opts = #{
         model => <<"openai/text-embedding-3-large">>,
         dimensions => 3072,
-        encoding_format => <<"float">>
+        encoding_format => <<"float">>,
+        provider => #{<<"ignore">> => [<<"deepinfra">>]}
     },
     Json = openrouter_embeddings:build_request(Input, Opts),
     {ok, Decoded} = openrouter_json:decode(Json),
@@ -68,4 +84,6 @@ all_opts_test() ->
     ?assertEqual(<<"openai/text-embedding-3-large">>, maps:get(<<"model">>, Decoded)),
     ?assertEqual(3072, maps:get(<<"dimensions">>, Decoded)),
     ?assertEqual(<<"float">>, maps:get(<<"encoding_format">>, Decoded)),
-    ?assertEqual(4, maps:size(Decoded)).
+    ?assertEqual(#{<<"ignore">> => [<<"deepinfra">>]},
+                 maps:get(<<"provider">>, Decoded)),
+    ?assertEqual(5, maps:size(Decoded)).

@@ -12,7 +12,8 @@ build_request(Input, Opts) ->
     WithModel = maybe_set(<<"model">>, model, Opts, Base),
     WithDims = maybe_set(<<"dimensions">>, dimensions, Opts, WithModel),
     WithEncoding = maybe_set(<<"encoding_format">>, encoding_format, Opts, WithDims),
-    {ok, Json} = openrouter_json:encode(WithEncoding),
+    WithProvider = maybe_set(<<"provider">>, provider, Opts, WithEncoding),
+    {ok, Json} = openrouter_json:encode(WithProvider),
     Json.
 
 -spec parse_response(Body :: binary()) ->

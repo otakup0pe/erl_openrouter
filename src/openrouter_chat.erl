@@ -28,7 +28,8 @@ build_request(Messages, Opts) ->
     WithStream = guard_stream_opt(maybe_set(<<"stream">>, stream, Opts, WithFmt)),
     WithTools = maybe_add_tools(Opts, WithStream),
     WithChoice = maybe_add_tool_choice(Opts, WithTools),
-    {ok, Json} = openrouter_json:encode(WithChoice),
+    WithProvider = maybe_set(<<"provider">>, provider, Opts, WithChoice),
+    {ok, Json} = openrouter_json:encode(WithProvider),
     Json.
 
 -spec parse_response(Body :: binary()) ->

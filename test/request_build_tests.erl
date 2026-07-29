@@ -100,6 +100,19 @@ undefined_opts_excluded_test() ->
     ?assert(maps:is_key(<<"model">>, Decoded)),
     ?assertNot(maps:is_key(<<"temperature">>, Decoded)).
 
+with_provider_test() ->
+    Messages = [#{<<"role">> => <<"user">>, <<"content">> => <<"hi">>}],
+    Provider = #{<<"ignore">> => [<<"deepinfra">>]},
+    Json = openrouter_chat:build_request(Messages, #{provider => Provider}),
+    {ok, Decoded} = openrouter_json:decode(Json),
+    ?assertEqual(Provider, maps:get(<<"provider">>, Decoded)).
+
+provider_omitted_when_absent_test() ->
+    Messages = [#{<<"role">> => <<"user">>, <<"content">> => <<"hi">>}],
+    Json = openrouter_chat:build_request(Messages, #{model => <<"test">>}),
+    {ok, Decoded} = openrouter_json:decode(Json),
+    ?assertNot(maps:is_key(<<"provider">>, Decoded)).
+
 output_is_binary_test() ->
     Messages = [#{<<"role">> => <<"user">>, <<"content">> => <<"hi">>}],
     Json = openrouter_chat:build_request(Messages, #{}),
