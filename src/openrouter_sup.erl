@@ -28,8 +28,13 @@ init([]) ->
         },
         #{
             id => openrouter_circuit_breaker,
+            %% This named worker IS the aggregate breaker --
+            %% openrouter_circuit_breaker_sup:resolve_global/0 returns this
+            %% registered name. It must be ratio-over-window, not
+            %% consecutive: see global_opts/0 for why.
             start => {openrouter_circuit_breaker, start_link,
-                      [openrouter_circuit_breaker, cb_opts()]},
+                      [openrouter_circuit_breaker,
+                       openrouter_circuit_breaker_sup:global_opts()]},
             restart => permanent,
             type => worker
         },
@@ -61,6 +66,4 @@ rl_opts() ->
     application:get_env(erl_openrouter, rate_limiter_opts,
                         #{max_tokens => 60, refill_interval => 60000}).
 
-cb_opts() ->
-    application:get_env(erl_openrouter, circuit_breaker_opts,
-                        #{failure_threshold => 5, reset_timeout => 30000}).
+

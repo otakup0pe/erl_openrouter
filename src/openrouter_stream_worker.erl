@@ -12,7 +12,10 @@
     stream_ref :: reference(),
     parser :: openrouter_stream:state(),
     idle_timeout :: pos_integer(),
-    circuit_breaker :: atom() | pid() | undefined
+    %% The per-(model, op) breaker AND the aggregate, when distinct. Every
+    %% outcome is recorded to both: a per-call breaker sees only its own
+    %% slice, so a shared-path failure spreads thinly and trips none.
+    breakers = [] :: [atom() | pid()]
 }).
 
 -spec start(pid(), reference(), string(), binary(), map()) -> ok.
@@ -21,7 +24,9 @@ start(CallerPid, StreamRef, Url, Request, Opts) ->
     Auth = maps:get(auth, Opts),
     Timeout = maps:get(timeout, Opts),
     ExtraHeaders = maps:get(extra_headers, Opts, []),
-    CB = maps:get(circuit_breaker, Opts, undefined),
+    CB = [B || B <- [maps:get(circuit_breaker, Opts, undefined),
+                     maps:get(global_breaker, Opts, undefined)],
+               B =/= undefined],
 
     case openrouter_http:post_stream(Url, StreamRequest, Auth, Timeout, ExtraHeaders) of
         {ok, RequestId} ->
@@ -31,7 +36,7 @@ start(CallerPid, StreamRef, Url, Request, Opts) ->
                 stream_ref = StreamRef,
                 parser = openrouter_stream:new(),
                 idle_timeout = Timeout,
-                circuit_breaker = CB
+                breakers = CB
             },
             loop(State);
         {error, Reason} ->
@@ -41,7 +46,7 @@ start(CallerPid, StreamRef, Url, Request, Opts) ->
     end.
 
 loop(#ws{request_id = ReqId, caller = Caller, stream_ref = Ref,
-         parser = Parser, idle_timeout = Timeout, circuit_breaker = CB} = State) ->
+         parser = Parser, idle_timeout = Timeout, breakers = CB} = State) ->
     receive
         {http, {ReqId, stream_start, _Headers, _StatusCode}} ->
             loop(State);
@@ -83,8 +88,8 @@ inject_stream_flag(RequestBody) when is_binary(RequestBody) ->
             RequestBody
     end.
 
-record_cb_success(undefined) -> ok;
-record_cb_success(CB) -> openrouter_circuit_breaker:record_success(CB).
+record_cb_success(Breakers) ->
+    lists:foreach(fun openrouter_circuit_breaker:record_success/1, Breakers).
 
-record_cb_failure(undefined) -> ok;
-record_cb_failure(CB) -> openrouter_circuit_breaker:record_failure(CB).
+record_cb_failure(Breakers) ->
+    lists:foreach(fun openrouter_circuit_breaker:record_failure/1, Breakers).

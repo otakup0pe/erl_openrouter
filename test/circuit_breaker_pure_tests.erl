@@ -109,6 +109,83 @@ trip_empty_window_does_not_trip_test() ->
     ?assertNot(openrouter_circuit_breaker:should_trip_ratio(Q, 5, 0.5, 0)).
 
 %%--------------------------------------------------------------------
+%% global_opts/0 -- the aggregate (upstream) breaker's own config
+%%
+%% WHY A SEPARATE LAYER: every per-(model, op) breaker observes only
+%% its own slice, so none of them can see a failure of the SHARED path
+%% -- one base_url, one API key, one HTTP route. A thin failure rate
+%% spread across many breakers trips none of them while every call is
+%% failing. The aggregate breaker is the only thing positioned to see
+%% that, and it needs ratio-over-window semantics because consecutive
+%% counting is defeated by interleaved successes from healthy models.
+%%
+%% Defaults are deliberately HIGH ratio and LONG window: the aggregate
+%% blocks ALL traffic when it opens, so it must not fire on one flaky
+%% provider. Both are configurable.
+%%--------------------------------------------------------------------
+
+global_opts_defaults_are_ratio_not_consecutive_test() ->
+    application:set_env(erl_openrouter, circuit_breaker_opts,
+                        #{failure_threshold => 5, reset_timeout => 30000}),
+    Opts = openrouter_circuit_breaker_sup:global_opts(),
+    %% A consecutive threshold here would make the aggregate breaker
+    %% blind to exactly the spread-out failure it exists to catch.
+    ?assert(is_float(maps:get(failure_ratio, Opts))),
+    ?assert(maps:get(failure_ratio, Opts) >= 0.75),
+    ?assert(maps:get(window_max_ms, Opts) >= 300000),
+    ?assert(maps:get(min_attempts, Opts) >= 10).
+
+global_opts_ratio_is_configurable_test() ->
+    application:set_env(erl_openrouter, circuit_breaker_opts,
+                        #{failure_threshold => 5, reset_timeout => 30000,
+                          global => #{failure_ratio => 0.6}}),
+    Opts = openrouter_circuit_breaker_sup:global_opts(),
+    ?assertEqual(0.6, maps:get(failure_ratio, Opts)).
+
+global_opts_window_is_configurable_test() ->
+    application:set_env(erl_openrouter, circuit_breaker_opts,
+                        #{failure_threshold => 5, reset_timeout => 30000,
+                          global => #{window_max_ms => 900000,
+                                      min_attempts => 25}}),
+    Opts = openrouter_circuit_breaker_sup:global_opts(),
+    ?assertEqual(900000, maps:get(window_max_ms, Opts)),
+    ?assertEqual(25, maps:get(min_attempts, Opts)).
+
+global_opts_overrides_top_level_test() ->
+    %% Same Element-vs-Acc merge-order hazard the breaker_opts tests
+    %% below pin: a backwards merge still yields a valid map.
+    application:set_env(erl_openrouter, circuit_breaker_opts,
+                        #{reset_timeout => 30000,
+                          global => #{reset_timeout => 120000}}),
+    Opts = openrouter_circuit_breaker_sup:global_opts(),
+    ?assertEqual(120000, maps:get(reset_timeout, Opts)).
+
+global_opts_strips_per_model_and_per_op_test() ->
+    %% The aggregate breaker is not scoped to any model or op, so
+    %% inheriting those sub-maps would hand a gen_server init a key it
+    %% cannot interpret.
+    application:set_env(erl_openrouter, circuit_breaker_opts,
+                        #{failure_threshold => 5, reset_timeout => 30000,
+                          per_model => #{<<"m">> => #{failure_threshold => 2}},
+                          per_op => #{some_op => #{failure_threshold => 3}},
+                          global => #{failure_ratio => 0.8}}),
+    Opts = openrouter_circuit_breaker_sup:global_opts(),
+    ?assertNot(maps:is_key(per_model, Opts)),
+    ?assertNot(maps:is_key(per_op, Opts)),
+    ?assertNot(maps:is_key(global, Opts)).
+
+global_opts_consecutive_threshold_is_cleared_test() ->
+    %% should_trip/1 dispatches on failure_ratio =:= undefined FIRST,
+    %% so a surviving failure_threshold alongside a ratio is ambiguous
+    %% at the clause level. The ratio clause must be the one that
+    %% matches.
+    application:set_env(erl_openrouter, circuit_breaker_opts,
+                        #{failure_threshold => 5, reset_timeout => 30000,
+                          global => #{failure_ratio => 0.8}}),
+    Opts = openrouter_circuit_breaker_sup:global_opts(),
+    ?assertEqual(undefined, maps:get(failure_threshold, Opts, undefined)).
+
+%%--------------------------------------------------------------------
 %% breaker_opts/2 -- layered precedence
 %%
 %% Regression coverage: foldl + maps:merge/2 is easy to get backwards

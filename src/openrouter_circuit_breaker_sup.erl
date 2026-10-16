@@ -2,7 +2,7 @@
 %% @private
 -behaviour(supervisor).
 
--export([start_link/0, ensure/1, ensure/2]).
+-export([start_link/0, ensure/1, ensure/2, global_opts/0]).
 -export([init/1]).
 
 -ifdef(TEST).
@@ -10,6 +10,18 @@
 -endif.
 
 -define(TAB, openrouter_circuit_breaker_registry).
+
+%% Aggregate-breaker defaults. Ratio-over-window, NOT consecutive: every
+%% per-(model, op) breaker observes only its own slice, so a failure of
+%% the SHARED path -- one base_url, one key, one route -- spreads thinly
+%% across many breakers and trips none of them. Consecutive counting is
+%% additionally defeated by interleaved successes from healthy models.
+%% ⚠️ Ratio and window are deliberately HIGH and LONG: an open aggregate
+%% blocks every call, so one flaky provider must not open it.
+-define(GLOBAL_DEFAULTS, #{failure_ratio => 0.8,
+                           window_max_ms => 600000,
+                           min_attempts => 10,
+                           reset_timeout => 120000}).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
@@ -102,6 +114,28 @@ breaker_opts(Model, Op) ->
     ],
     Merge = fun(Layer, Acc) -> maps:merge(Acc, Layer) end,
     lists:foldl(Merge, #{}, Layers).
+
+%% @doc Opts for the AGGREGATE breaker, which is scoped to neither model
+%% nor op. Precedence: ?GLOBAL_DEFAULTS < top-level < `global' sub-map.
+%%
+%% ⚠️ `failure_threshold' is STRIPPED rather than left beside
+%% `failure_ratio'. openrouter_circuit_breaker:should_trip/1 dispatches
+%% on `failure_ratio =:= undefined' in its FIRST clause, so carrying both
+%% makes which mode applies depend on clause order instead of on
+%% configuration. Removing it leaves exactly one matching clause.
+%% The four keys are REQUIRED, not optional: merging over a literal base
+%% guarantees them, and a caller relies on `failure_ratio' being present to
+%% get ratio-over-window mode rather than consecutive counting.
+-spec global_opts() -> #{failure_ratio := term(),
+                         window_max_ms := term(),
+                         min_attempts := term(),
+                         reset_timeout := term(),
+                         term() => term()}.
+global_opts() ->
+    All = application:get_env(erl_openrouter, circuit_breaker_opts, #{}),
+    Scoped = maps:without([per_model, per_op, global, failure_threshold], All),
+    Global = maps:get(global, All, #{}),
+    maps:merge(maps:merge(?GLOBAL_DEFAULTS, Scoped), Global).
 
 resolve_global() ->
     case whereis(openrouter_circuit_breaker) of

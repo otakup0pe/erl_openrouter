@@ -31,7 +31,12 @@
     backoff_max :: pos_integer(),
     extra_headers = [] :: [{string(), string()}],
     rate_limiter :: atom() | pid() | undefined,
-    circuit_breaker :: atom() | pid() | undefined
+    circuit_breaker :: atom() | pid() | undefined,
+    %% The AGGREGATE breaker, consulted alongside `circuit_breaker'. A
+    %% per-(model, op) breaker observes only its own slice, so a failure of
+    %% the SHARED path spreads thinly across many breakers and trips none.
+    %% `undefined' when `circuit_breaker' already IS the aggregate.
+    global_breaker :: atom() | pid() | undefined
 }).
 
 -spec start_link() -> {ok, pid()} | {error, term()}.
@@ -148,7 +153,8 @@ handle_call({chat_stream, Messages, Opts}, {CallerPid, _Tag}, State) ->
                         auth => Config#call_config.auth,
                         timeout => Config#call_config.timeout,
                         extra_headers => Config#call_config.extra_headers,
-                        circuit_breaker => Config#call_config.circuit_breaker
+                        circuit_breaker => Config#call_config.circuit_breaker,
+                        global_breaker => Config#call_config.global_breaker
                     },
                     {WorkerPid, MonRef} = spawn_monitor(fun() ->
                         openrouter_stream_worker:start(
@@ -312,7 +318,9 @@ check_auth(_) ->
 build_call_config(Opts, #state{} = State) ->
     Model = maps:get(model, Opts, undefined),
     Op = maps:get(operation, Opts, undefined),
+    CB = resolve_circuit_breaker(Model, Op),
     #call_config{
+        global_breaker = resolve_global_breaker(CB),
         auth = resolve_request_auth(Opts, State#state.auth),
         base_url = resolve_request_url(Opts, State#state.base_url),
         timeout = resolve_request_timeout(Opts, State#state.timeout),
@@ -321,8 +329,17 @@ build_call_config(Opts, #state{} = State) ->
         backoff_max = State#state.backoff_max,
         extra_headers = resolve_extra_headers(Opts, State#state.extra_headers),
         rate_limiter = resolve_named_process(openrouter_rate_limiter),
-        circuit_breaker = resolve_circuit_breaker(Model, Op)
+        circuit_breaker = CB
     }.
+
+%% ⚠️ `undefined' when the per-call breaker already IS the aggregate, which
+%% happens when no model was named. Recording one outcome twice into the
+%% same ratio window would inflate it toward the trip threshold.
+resolve_global_breaker(CB) ->
+    case resolve_named_process(openrouter_circuit_breaker) of
+        CB -> undefined;
+        Global -> Global
+    end.
 
 resolve_named_process(Name) ->
     case whereis(Name) of
@@ -430,9 +447,17 @@ do_get_with_retry(Url, Config, ParseFun) ->
             {Err, 0}
     end.
 
-pre_flight_checks(#call_config{circuit_breaker = CB, rate_limiter = RL}) ->
-    case check_circuit_breaker(CB) of
+pre_flight_checks(#call_config{rate_limiter = RL} = Config) ->
+    case check_breakers(Config) of
         ok -> check_rate_limiter(RL);
+        {error, _} = Err -> Err
+    end.
+
+%% EITHER breaker open blocks the call: the aggregate is the only one that
+%% can see a shared-path failure spread across models.
+check_breakers(#call_config{circuit_breaker = CB, global_breaker = GB}) ->
+    case check_circuit_breaker(CB) of
+        ok -> check_circuit_breaker(GB);
         {error, _} = Err -> Err
     end.
 
@@ -459,12 +484,12 @@ check_rate_limiter(RL) ->
     end.
 
 classify_http_result({ok, 200, Headers, Body}, ParseFun, Config) ->
-    record_cb_success(Config#call_config.circuit_breaker),
+    record_breakers_success(Config),
     RequestId = openrouter_http:find_request_id(Headers),
     inject_request_id(ParseFun(Body), RequestId);
 classify_http_result({ok, StatusCode, Headers, Body}, _ParseFun, Config)
   when StatusCode =:= 429; StatusCode >= 500 ->
-    record_cb_failure(Config#call_config.circuit_breaker),
+    record_breakers_failure(Config),
     RetryAfter = openrouter_http:parse_retry_after(Headers),
     RequestId = openrouter_http:find_request_id(Headers),
     Error = inject_request_id_into_error(
@@ -476,8 +501,18 @@ classify_http_result({ok, StatusCode, Headers, Body}, _ParseFun, _Config) ->
                 openrouter_error:classify(StatusCode, Body), RequestId),
     {error, Error};
 classify_http_result({error, Reason}, _ParseFun, Config) ->
-    record_cb_failure(Config#call_config.circuit_breaker),
+    record_breakers_failure(Config),
     {error, openrouter_error:classify(Reason)}.
+
+record_breakers_success(#call_config{circuit_breaker = CB,
+                                     global_breaker = GB}) ->
+    record_cb_success(CB),
+    record_cb_success(GB).
+
+record_breakers_failure(#call_config{circuit_breaker = CB,
+                                     global_breaker = GB}) ->
+    record_cb_failure(CB),
+    record_cb_failure(GB).
 
 record_cb_success(undefined) -> ok;
 record_cb_success(CB) -> openrouter_circuit_breaker:record_success(CB).
@@ -507,7 +542,7 @@ with_retry(Fun, Attempt, #call_config{max_retries = MaxRetries} = Config) ->
                 #{delay_ms => DelayMs},
                 #{attempt => Attempt + 1, max_retries => MaxRetries}),
             timer:sleep(DelayMs),
-            case check_circuit_breaker(Config#call_config.circuit_breaker) of
+            case check_breakers(Config) of
                 ok ->
                     with_retry(Fun, Attempt + 1, Config);
                 {error, _} = Err ->
