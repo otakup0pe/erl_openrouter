@@ -11,7 +11,7 @@ jobs:
     # Only run with secrets -- fork PRs can't access them
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     container:
-      image: erlang:27-slim
+      image: erlang:27.3.4.9-slim
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
@@ -22,7 +22,7 @@ jobs:
 
       - name: Install rebar3
         run: |
-          curl -fsSL https://github.com/erlang/rebar3/releases/latest/download/rebar3 -o /usr/local/bin/rebar3
+          curl -fsSL https://github.com/erlang/rebar3/releases/download/3.28.0/rebar3 -o /usr/local/bin/rebar3
           chmod +x /usr/local/bin/rebar3
 
       - name: Run integration tests

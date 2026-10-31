@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        otp: ['27']
+        otp: ['27.3.4.9']
     container:
       image: erlang:${{ matrix.otp }}-slim
     steps:
@@ -22,7 +22,7 @@ jobs:
 
       - name: Install rebar3
         run: |
-          curl -fsSL https://github.com/erlang/rebar3/releases/latest/download/rebar3 -o /usr/local/bin/rebar3
+          curl -fsSL https://github.com/erlang/rebar3/releases/download/3.28.0/rebar3 -o /usr/local/bin/rebar3
           chmod +x /usr/local/bin/rebar3
 
       - name: Run tests
