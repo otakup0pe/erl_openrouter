@@ -1,9 +1,15 @@
 ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: all compile test test-all test-local test-eunit test-ct test-dialyzer clean distclean docker-build docker-test dialyzer shell integration test-integration dev-upgrade
+.PHONY: all compile test test-all test-local test-eunit test-ct test-dialyzer clean distclean docker-build docker-test dialyzer shell integration test-integration dev-upgrade lint-secrets lint-secrets-staged
 
 REBAR3 ?= rebar3
 COMPOSE ?= docker compose -f docker-compose.test.yml
+GITLEAKS_IMAGE ?= ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+GITLEAKS_MODE ?= git
+GITLEAKS_SOURCE ?= .
+# `git` mode reads COMMITS, so it cannot see staged-but-uncommitted content.
+# lint-secrets-staged overrides this with the documented staged invocation.
+GITLEAKS_FLAGS ?=
 
 export BUILDX_BUILDER ?= default
 
@@ -35,6 +41,23 @@ test-eunit:
 
 test-ct:
 	$(REBAR3) ct --dir test
+
+lint-secrets:
+	docker run --rm \
+		--user "$$(id -u):$$(id -g)" \
+		--network none \
+		--read-only \
+		--cap-drop=ALL \
+		--tmpfs /tmp:rw,noexec,nosuid,size=16m \
+		-v "$(ROOT_DIR):/repo:ro" \
+		-w /repo \
+		$(GITLEAKS_IMAGE) $(GITLEAKS_MODE) $(GITLEAKS_SOURCE) $(GITLEAKS_FLAGS) --redact --no-banner --verbose
+
+lint-secrets-staged: GITLEAKS_FLAGS := --pre-commit --staged
+lint-secrets-staged: lint-secrets
+
+# No `pre-commit' target: the managed git hook already runs the staged secret
+# scan, and with nothing else to add here the hook falls through to `test'.
 
 clean:
 	$(REBAR3) clean
