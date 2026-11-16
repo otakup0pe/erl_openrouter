@@ -2,6 +2,7 @@
 
 [![CI Status](https://img.shields.io/github/actions/workflow/status/otakup0pe/erl_openrouter/test.yml)](https://github.com/otakup0pe/erl_openrouter/actions/workflows/test.yml)
 [![Maintenance](https://img.shields.io/maintenance/yes/2026.svg)](https://github.com/otakup0pe/erl_openrouter)
+[![Release](https://img.shields.io/github/v/release/otakup0pe/erl_openrouter)](https://github.com/otakup0pe/erl_openrouter/releases)
 [![License](https://img.shields.io/github/license/otakup0pe/erl_openrouter)](https://github.com/otakup0pe/erl_openrouter/blob/mainline/LICENSE)
 
 Erlang/OTP client for the [OpenRouter API](https://openrouter.ai/). Chat completions, tool use, embeddings, rate limiting, circuit breaking, and telemetry.
@@ -13,13 +14,8 @@ Erlang/OTP client for the [OpenRouter API](https://openrouter.ai/). Chat complet
 
 ## Quick Start
 
-Add to `rebar.config`:
-
-```erlang
-{deps, [
-    {erl_openrouter, {git, "https://github.com/otakup0pe/erl_openrouter.git", {tag, "0.5.0"}}}
-]}.
-```
+Add `erl_openrouter` to your `rebar.config` deps, picking a version from
+[releases](https://github.com/otakup0pe/erl_openrouter/releases).
 
 Set your API key and make a request:
 
