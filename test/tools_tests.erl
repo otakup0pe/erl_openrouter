@@ -109,6 +109,38 @@ encode_tool_result_message_test() ->
     %% content passed through as raw binary
     ?assertEqual(<<"{\"temp\":72}">>, maps:get(<<"content">>, Msg)).
 
+encode_assistant_tool_call_message_test() ->
+    ToolCall = #{
+        <<"id">> => <<"call_abc">>,
+        <<"type">> => <<"function">>,
+        <<"function">> => #{
+            <<"name">> => <<"get_weather">>,
+            <<"arguments">> => <<"{\"city\":\"Tokyo\"}">>
+        }
+    },
+    RawMessage = #{
+        <<"role">> => <<"assistant">>,
+        <<"content">> => null,
+        <<"refusal">> => null,
+        <<"reasoning">> => <<"Need weather data.">>,
+        <<"reasoning_content">> => <<"Need weather data.">>,
+        <<"reasoning_details">> => [#{<<"type">> => <<"reasoning.text">>,
+                                      <<"text">> => <<"Need weather data.">>}],
+        <<"tool_calls">> => [ToolCall]
+    },
+    {ok, Body} = openrouter_json:encode(#{
+        <<"choices">> => [#{
+            <<"message">> => RawMessage,
+            <<"finish_reason">> => <<"tool_calls">>
+        }]
+    }),
+    {ok, Response} = openrouter_chat:parse_response(Body),
+    [Choice] = Response#chat_response.choices,
+    ParsedMessage = maps:get(<<"message">>, Choice),
+    ReplayMessage =
+        openrouter_tools:encode_assistant_tool_call_message(ParsedMessage),
+    ?assertEqual(maps:remove(<<"refusal">>, ParsedMessage), ReplayMessage).
+
 validate_tools_ok_test() ->
     Tools = [
         #tool{function = #tool_function{name = <<"a">>, parameters = #{}}},

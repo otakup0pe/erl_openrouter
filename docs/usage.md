@@ -38,14 +38,16 @@ Tools = [#{
     ], #{model => <<"openai/gpt-4o">>, tools => Tools, tool_choice => auto}).
 ```
 
-When the model returns `tool_calls`, build the follow-up with `openrouter_tools:encode_tool_result_message/2`:
+When the model returns `tool_calls`, encode both follow-up messages. The assistant encoder removes response-only fields that some providers reject while preserving OpenRouter reasoning fields:
 
 ```erlang
+AssistantReplay =
+    openrouter_tools:encode_assistant_tool_call_message(AssistantMsg),
 ToolResult = openrouter_tools:encode_tool_result_message(
     ToolCallId,
     <<"{\"temperature\": \"28C\", \"condition\": \"sunny\"}">>),
 {ok, Resp2} = openrouter:chat(
-    OriginalMessages ++ [AssistantMsg, ToolResult],
+    OriginalMessages ++ [AssistantReplay, ToolResult],
     #{model => <<"openai/gpt-4o">>, tools => Tools}).
 ```
 
