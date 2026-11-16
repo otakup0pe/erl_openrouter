@@ -271,7 +271,8 @@ tool_call_roundtrip(Config) ->
     {ok, Resp1} = openrouter:chat(Messages, Opts),
     [Choice1 | _] = Resp1#chat_response.choices,
     FinishReason1 = maps:get(<<"finish_reason">>, Choice1, undefined),
-    AssistantMsg = maps:get(<<"message">>, Choice1),
+    AssistantMsg = openrouter_tools:encode_assistant_tool_call_message(
+        maps:get(<<"message">>, Choice1)),
     ToolCalls = maps:get(<<"tool_calls">>, AssistantMsg, []),
     case ToolCalls of
         [] ->

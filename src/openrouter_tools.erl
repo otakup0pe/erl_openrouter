@@ -14,6 +14,7 @@
          encode_tool_choice/1,
          decode_tool_call/1,
          decode_tool_calls/1,
+         encode_assistant_tool_call_message/1,
          encode_tool_result_message/2,
          validate_tools/1]).
 
@@ -79,6 +80,16 @@ decode_tool_call(Map) when is_map(Map) ->
         function_name = maps:get(<<"name">>, Fun, undefined),
         function_arguments = maps:get(<<"arguments">>, Fun, <<>>)
     }.
+
+%% @doc Build a portable assistant message for replaying tool calls.
+%%
+%% Response-only fields are excluded. OpenRouter reasoning fields are kept
+%% because reasoning models require them to continue after tool execution.
+-spec encode_assistant_tool_call_message(map()) -> map().
+encode_assistant_tool_call_message(Message) when is_map(Message) ->
+    maps:with([<<"role">>, <<"content">>, <<"tool_calls">>,
+               <<"reasoning">>, <<"reasoning_content">>,
+               <<"reasoning_details">>], Message).
 
 %% @doc Build a `role=tool' follow-up message for a completed tool call.
 %%
